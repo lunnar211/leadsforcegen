@@ -8,14 +8,11 @@ import { supabase } from "@/lib/supabaseClient";
 // automatically when it loads; we wait for that session, then continue.
 export default function AuthCallback() {
   const router = useRouter();
-  const [msg, setMsg] = useState("Finishing sign-in...");
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const client = supabase;
-    if (!client) {
-      setMsg("Supabase is not configured in this environment.");
-      return;
-    }
+    if (!client) return;
     let tries = 0;
     const timer = setInterval(async () => {
       tries += 1;
@@ -25,11 +22,17 @@ export default function AuthCallback() {
         router.push("/dashboard");
       } else if (tries >= 10) {
         clearInterval(timer);
-        setMsg("Sign-in did not complete. Please try logging in again.");
+        setFailed(true);
       }
     }, 500);
     return () => clearInterval(timer);
   }, [router]);
+
+  const msg = !supabase
+    ? "Supabase is not configured in this environment."
+    : failed
+      ? "Sign-in did not complete. Please try logging in again."
+      : "Finishing sign-in...";
 
   return (
     <div className="mx-auto max-w-md px-4 py-14 text-center">

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { FREE_DAILY_LEAD_LIMIT, type Lead, type Plan } from "@/lib/types";
 import { supabase } from "@/lib/supabaseClient";
@@ -9,21 +9,26 @@ type HistoryItem = { at: string; industry: string; location: string; count: numb
 function todayKey() { return new Date().toISOString().slice(0, 10); }
 
 export default function Dashboard() {
-  const [plan, setPlan] = useState<Plan>("free");
-  const [used, setUsed] = useState(0);
+  const [plan, setPlan] = useState<Plan>(() =>
+    typeof window === "undefined" ? "free" : ((localStorage.getItem("leadsforcegen_plan") as Plan) || "free"));
+  const [used, setUsed] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    if (localStorage.getItem("leadsforcegen_usage_date") !== todayKey()) {
+      localStorage.setItem("leadsforcegen_usage_date", todayKey());
+      localStorage.setItem("leadsforcegen_usage_count", "0");
+      return 0;
+    }
+    return Number(localStorage.getItem("leadsforcegen_usage_count") || 0);
+  });
   const [form, setForm] = useState({ leadType: "B2B companies", industry: "", location: "", size: "11-50", keywords: "" });
   const [leads, setLeads] = useState<Lead[]>([]);
   const [note, setNote] = useState(""); const [source, setSource] = useState("");
   const [loading, setLoading] = useState(false);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem("leadsforcegen_history") || "[]"); } catch { return []; }
+  });
   const [outreach, setOutreach] = useState(""); const [selected, setSelected] = useState<Lead | null>(null);
-
-  useEffect(() => {
-    const p = (localStorage.getItem("leadsforcegen_plan") as Plan) || "free"; setPlan(p);
-    if (localStorage.getItem("leadsforcegen_usage_date") !== todayKey()) { localStorage.setItem("leadsforcegen_usage_date", todayKey()); localStorage.setItem("leadsforcegen_usage_count", "0"); setUsed(0); }
-    else setUsed(Number(localStorage.getItem("leadsforcegen_usage_count") || 0));
-    try { setHistory(JSON.parse(localStorage.getItem("leadsforcegen_history") || "[]")); } catch {}
-  }, []);
 
   const remaining = plan === "pro" ? Infinity : Math.max(0, FREE_DAILY_LEAD_LIMIT - used);
 
