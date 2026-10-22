@@ -7,7 +7,7 @@ test with raw output before DONE.
 - [ ] A1. Fix missing export (fetchOSMLeads vs OSMProvider); grep for other broken imports — DONE (2026-10-22: no osm.ts/fetchOSMLeads in this codebase; tsc --noEmit clean; all @/lib imports resolve; fixed 3 react-hooks/set-state-in-effect lint errors found during verification)
 - [ ] A2. Fix every dead button/link; create missing pages; Playwright click-through test — TODO
 - [ ] A3. Remove ALL fake data; dashboard shows real Supabase values + honest empty states — TODO
-- [ ] A4. API contract: JSON { ok, data | error } + correct status codes; client checks res.ok/content-type, toast errors — TODO
+- [x] A4 (partial, 2026-10-22). API contract: JSON { ok, data | error } + correct status codes; client checks res.ok/content-type, toast errors — TODO
 - [ ] A5. Geocoding: proper User-Agent, 1 req/s throttle, 8s timeout, cache, fallback chain, Overpass 3 mirrors — TODO
 - [ ] A6. next.config: turbopack.root, proxy.ts (not middleware), dynamic search/user routes — TODO
 - [ ] A7. /api/health: env presence + Supabase + AI provider checks, no secrets — TODO
@@ -36,7 +36,7 @@ test with raw output before DONE.
 - [ ] E2. Saved searches + cron re-run, share links, hashed API keys, HMAC webhooks — TODO
 
 ## F. Plans, payments, admin
-- [ ] F1. Plans table (admin-editable), atomic consume_daily_quota() with row locking — TODO
+- [x] F1 (core, 2026-10-22). Server quota: daily_usage table + atomic consume_daily_quota() in schema.sql, /api/usage, dashboard displays server values only (localStorage plan/usage removed). Plans-table admin editor still TODO
 - [ ] F2. Payments — IN PROGRESS (2026-10-22: manual eSewa/Khalti/bank flow BUILT — server NPR price map, proof upload to private bucket, admin approve/reject queue activating Pro + subscription period; Razorpay/Stripe verified scaffold retained; Lemon Squeezy still TODO)
 - [ ] F3. Admin: overview, users, subscriptions, money, real-time audit log, source toggles, removal requests, announcements, settings; role check everywhere — TODO
 
@@ -45,5 +45,5 @@ test with raw output before DONE.
 - [ ] G2. Landing page: hero, how-it-works, bento, honest labeled demo, pricing with fair-use footnote, FAQ, footer, one lazy 3D element max — TODO
 
 ## H. Security and launch
-- [ ] H1. RLS/IDOR tests, 403 checks, Zod everywhere, rate limits, security headers, gitleaks, npm audit, SSRF + quota race tests — TODO
+- [ ] H1 (partial, 2026-10-22: RLS enabled on all tables with real policies in schema.sql; gitleaks history scan clean; security headers + CSP payment/Supabase allowances live; npm audit blocked by this environment registry policy — run locally). Remaining: RLS/IDOR tests, 403 checks, Zod everywhere, rate limits, security headers, gitleaks, npm audit, SSRF + quota race tests — TODO
 - [ ] H2. SECURITY.md, README (setup, env names, manual steps), go/no-go checklist — TODO

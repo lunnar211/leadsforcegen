@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { MANUAL_METHODS, MANUAL_PRICES_NPR } from "@/lib/payments/plans";
 
+import { connection } from "next/server";
+
 // Public checkout info for manual payments: prices (server map) and the
 // owner's receiving instructions from MANUAL_PAYMENT_INSTRUCTIONS.
 // No secrets are exposed here — only what a buyer needs to pay.
 export async function GET() {
+  await connection();
   return NextResponse.json({
     ok: true,
     data: {

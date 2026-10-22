@@ -39,9 +39,10 @@ export async function POST(req: Request) {
       const s = event.data?.object || {};
       const paymentId = String(s.payment_intent || s.id || "");
       const paid = s.payment_status === "paid";
-      // Amount was fixed server-side by the Stripe Price at session creation;
-      // still require a paid session for the Pro plan metadata.
-      const planOk = (s.metadata as Record<string, string> | undefined)?.plan === "pro" || true;
+      // Amount was fixed server-side by the Stripe Price at session creation.
+      // The plan MUST come from the metadata our own create-order set —
+      // a paid session without plan=pro metadata never upgrades anyone.
+      const planOk = (s.metadata as Record<string, string> | undefined)?.plan === "pro";
       if (paid && planOk && paymentId && !(await alreadyProcessed("payment", "stripe", paymentId))) {
         await recordPayment({ gateway: "stripe", gatewayPaymentId: paymentId, gatewayOrderId: String(s.id || ""), email: String((s.customer_details as Record<string, unknown>)?.email || "") || null, plan: "pro", amount: Number(s.amount_total || 0), currency: String(s.currency || PLANS.pro.stripe.currency) });
       }

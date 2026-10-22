@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sampleLeads, type Lead } from "@/lib/types";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { consumeQuota, getAuthUser, getUsage, quotaConfigured } from "@/lib/quota";
 
 
 async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
@@ -51,17 +52,44 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
   }
   const body = await req.json().catch(() => ({}));
-  const ai = await groqLeads(body);
-  if (ai) {
-    return NextResponse.json({
-      leads: ai,
-      source: "groq",
-      note: "AI-generated company prospects. Verify every lead before outreach — do not treat AI output as verified contact data.",
-    });
+
+  // Server-side quota (active when Supabase is configured): the caller's
+  // plan and daily limit come from Postgres, never from the client.
+  let quotaUser: { id: string; remaining: number } | null = null;
+  if (quotaConfigured()) {
+    const user = await getAuthUser(req);
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "Sign in to search for leads." }, { status: 401 });
+    }
+    const usage = await getUsage(user.id);
+    if (!usage) return NextResponse.json({ ok: false, error: "Could not check your quota." }, { status: 502 });
+    if (usage.remaining <= 0) {
+      return NextResponse.json(
+        { ok: false, code: "QUOTA_EXCEEDED", error: `Daily limit reached (${usage.limit} leads on the ${usage.plan} plan). Upgrade to Pro for more.` },
+        { status: 429 },
+      );
+    }
+    quotaUser = { id: user.id, remaining: usage.remaining };
   }
-  return NextResponse.json({
-    leads: sampleLeads(body),
-    source: "sample",
-    note: "Sample data (Groq key missing or request failed). Clearly labeled demo leads — verify before outreach.",
-  });
+
+  const ai = await groqLeads(body);
+  let leads = ai ?? sampleLeads(body);
+  const source = ai ? "groq" : "sample";
+  const note = ai
+    ? "AI-generated company prospects. Verify every lead before outreach — do not treat AI output as verified contact data."
+    : "Sample data (Groq key missing or request failed). Clearly labeled demo leads — verify before outreach.";
+
+  if (quotaUser) {
+    leads = leads.slice(0, quotaUser.remaining);
+    const consumed = await consumeQuota(quotaUser.id, leads.length);
+    if (!consumed) {
+      return NextResponse.json(
+        { ok: false, code: "QUOTA_EXCEEDED", error: "Daily limit reached. Upgrade to Pro for more." },
+        { status: 429 },
+      );
+    }
+    const usage = await getUsage(quotaUser.id);
+    return NextResponse.json({ ok: true, leads, source, note, usage });
+  }
+  return NextResponse.json({ leads, source, note });
 }

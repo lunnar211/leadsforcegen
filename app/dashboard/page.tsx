@@ -1,25 +1,17 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FREE_DAILY_LEAD_LIMIT, type Lead, type Plan } from "@/lib/types";
+import { type Lead } from "@/lib/types";
 import { supabase } from "@/lib/supabaseClient";
 
 type HistoryItem = { at: string; industry: string; location: string; count: number };
+type UsageState = { configured: boolean; plan: string; used: number; limit: number; remaining: number };
 
-function todayKey() { return new Date().toISOString().slice(0, 10); }
-
+// Plan and usage come ONLY from the server (/api/usage, backed by Supabase
+// + the consume_daily_quota Postgres function). This page displays them;
+// it never decides them. Search history below is device-local display data.
 export default function Dashboard() {
-  const [plan, setPlan] = useState<Plan>(() =>
-    typeof window === "undefined" ? "free" : ((localStorage.getItem("leadsforcegen_plan") as Plan) || "free"));
-  const [used, setUsed] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    if (localStorage.getItem("leadsforcegen_usage_date") !== todayKey()) {
-      localStorage.setItem("leadsforcegen_usage_date", todayKey());
-      localStorage.setItem("leadsforcegen_usage_count", "0");
-      return 0;
-    }
-    return Number(localStorage.getItem("leadsforcegen_usage_count") || 0);
-  });
+  const [usage, setUsage] = useState<UsageState | null>(null);
   const [form, setForm] = useState({ leadType: "B2B companies", industry: "", location: "", size: "11-50", keywords: "" });
   const [leads, setLeads] = useState<Lead[]>([]);
   const [note, setNote] = useState(""); const [source, setSource] = useState("");
@@ -30,20 +22,46 @@ export default function Dashboard() {
   });
   const [outreach, setOutreach] = useState(""); const [selected, setSelected] = useState<Lead | null>(null);
 
-  const remaining = plan === "pro" ? Infinity : Math.max(0, FREE_DAILY_LEAD_LIMIT - used);
+  const authHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    if (!supabase) return {};
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, []);
+
+  const loadUsage = useCallback(async () => {
+    try {
+      const res = await fetch("/api/usage", { headers: await authHeaders() });
+      const d = await res.json().catch(() => ({}));
+      if (d.data) setUsage(d.data as UsageState);
+    } catch { /* leave usage null; UI shows a loading/demo state */ }
+  }, [authHeaders]);
+
+  useEffect(() => {
+    (async () => { await loadUsage(); })();
+  }, [loadUsage]);
+
+  const isPro = usage?.plan === "pro";
 
   async function search(e: React.FormEvent) {
     e.preventDefault();
-    if (plan !== "pro" && remaining <= 0) { setNote("Free daily limit reached. Upgrade to Pro for unlimited leads."); return; }
     setLoading(true);
     try {
-      const res = await fetch("/api/ai/leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-      const data = await res.json();
-      let results: Lead[] = data.leads || [];
-      if (plan !== "pro") results = results.slice(0, remaining as number);
+      const res = await fetch("/api/ai/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNote(data.error || "Search failed. Please try again.");
+        setLeads([]);
+        if (data.usage) setUsage(data.usage);
+        return;
+      }
+      const results: Lead[] = data.leads || [];
       setLeads(results); setNote(data.note || ""); setSource(data.source || "");
-      const newUsed = used + results.length;
-      if (plan !== "pro") { setUsed(newUsed); localStorage.setItem("leadsforcegen_usage_count", String(newUsed)); }
+      if (data.usage) setUsage(data.usage); else await loadUsage();
       const item = { at: new Date().toISOString(), industry: form.industry, location: form.location, count: results.length };
       const hist = [item, ...history].slice(0, 20); setHistory(hist); localStorage.setItem("leadsforcegen_history", JSON.stringify(hist));
       if (supabase) {
@@ -59,9 +77,9 @@ export default function Dashboard() {
   }
 
   function exportCsv() {
-    if (plan !== "pro") { alert("CSV export is a Pro feature. Upgrade to Pro for unlimited leads + CSV export."); return; }
-    const rows = [["company","industry","location","size","website","score","description"], ...leads.map(l => [l.company,l.industry,l.location,l.size,l.website,String(l.score),l.description])];
-    const csv = rows.map(r => r.map(c => `"${String(c).replaceAll('"','""')}"`).join(",")).join("\n");
+    if (!isPro) { alert("CSV export is a Pro feature. Upgrade to Pro for CSV export."); return; }
+    const rows = [["company", "industry", "location", "size", "website", "score", "description"], ...leads.map(l => [l.company, l.industry, l.location, l.size, l.website, String(l.score), l.description])];
+    const csv = rows.map(r => r.map(c => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "leadsforcegen-leads.csv"; a.click();
   }
 
@@ -78,19 +96,26 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-white">LeadsForceGen Dashboard</h1>
         <div className="text-sm flex items-center gap-3">
-          <span className="bg-white/5 border border-white/10 rounded-full px-3 py-1">Plan: <b className="text-white">{plan.toUpperCase()}</b></span>
-          <span className="bg-white/5 border border-white/10 rounded-full px-3 py-1">{plan === "pro" ? "Unlimited leads" : `${remaining} / ${FREE_DAILY_LEAD_LIMIT} free leads left today`}</span>
-          <button onClick={() => { const p = plan === "pro" ? "free" : "pro"; setPlan(p); localStorage.setItem("leadsforcegen_plan", p); }} className="text-xs border border-white/20 rounded-full px-3 py-1" title="Demo toggle only — real Pro comes from a verified payment">Demo: toggle plan</button>
-          {plan !== "pro" && <Link href="/checkout" className="bg-indigo-600 px-3 py-1.5 rounded-full font-semibold">Upgrade to Pro</Link>}
+          <span className="bg-white/5 border border-white/10 rounded-full px-3 py-1">Plan: <b className="text-white">{(usage?.plan || "free").toUpperCase()}</b></span>
+          <span className="bg-white/5 border border-white/10 rounded-full px-3 py-1">
+            {usage === null
+              ? "Loading usage…"
+              : !usage.configured
+                ? "Demo mode — server quotas activate when the database is connected"
+                : isPro
+                  ? `Unlimited* — ${usage.used} / ${usage.limit} fair-use leads used today`
+                  : `${usage.remaining} / ${usage.limit} free leads left today`}
+          </span>
+          {!isPro && <Link href="/checkout" className="bg-indigo-600 px-3 py-1.5 rounded-full font-semibold">Upgrade to Pro</Link>}
         </div>
       </div>
 
       <form onSubmit={search} className="grid md:grid-cols-5 gap-3 mt-6 bg-white/5 border border-white/10 rounded-2xl p-4">
-        <input className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Lead type (e.g. Restaurants)" value={form.leadType} onChange={set("leadType")} />
-        <input className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Industry" value={form.industry} onChange={set("industry")} />
-        <input className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Location" value={form.location} onChange={set("location")} />
-        <select className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" value={form.size} onChange={set("size")}><option>1-10</option><option>11-50</option><option>51-200</option><option>201-1000</option><option>1000+</option></select>
-        <input className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Keywords" value={form.keywords} onChange={set("keywords")} />
+        <input aria-label="Lead type" className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Lead type (e.g. Restaurants)" value={form.leadType} onChange={set("leadType")} />
+        <input aria-label="Industry" className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Industry" value={form.industry} onChange={set("industry")} />
+        <input aria-label="Location" className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Location" value={form.location} onChange={set("location")} />
+        <select aria-label="Company size" className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" value={form.size} onChange={set("size")}><option>1-10</option><option>11-50</option><option>51-200</option><option>201-1000</option><option>1000+</option></select>
+        <input aria-label="Keywords" className="rounded-xl bg-slate-900 border border-white/10 px-3 py-2.5" placeholder="Keywords" value={form.keywords} onChange={set("keywords")} />
         <button disabled={loading} className="md:col-span-5 bg-indigo-600 hover:bg-indigo-500 rounded-xl py-3 font-semibold disabled:opacity-50">{loading ? "Searching with AI…" : "🔍 Find leads"}</button>
       </form>
 
@@ -99,7 +124,7 @@ export default function Dashboard() {
       {leads.length > 0 && (
         <div className="mt-6">
           <div className="flex justify-between items-center"><h2 className="font-semibold text-white">{leads.length} leads</h2>
-            <button onClick={exportCsv} className="border border-white/20 rounded-xl px-4 py-2 text-sm">{plan === "pro" ? "📥 Export CSV" : "🔒 Export CSV (Pro)"}</button></div>
+            <button onClick={exportCsv} className="border border-white/20 rounded-xl px-4 py-2 text-sm">{isPro ? "📥 Export CSV" : "🔒 Export CSV (Pro)"}</button></div>
           <div className="grid md:grid-cols-2 gap-3 mt-3">
             {leads.map((l, i) => (
               <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4">

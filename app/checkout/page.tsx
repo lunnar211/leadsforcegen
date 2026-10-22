@@ -30,8 +30,7 @@ export default function Checkout() {
             // the signature + captured amount first (see /api/payments/verify).
             const v = await fetch("/api/payments/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(resp) });
             const vd = await v.json();
-            setMsg(v.ok ? vd.message : `Verification failed: ${vd.error || "unknown"}`);
-            if (v.ok) localStorage.setItem("leadsforcegen_plan", "pro");
+            setMsg(v.ok ? `${vd.message || "Payment verified."} Your plan is updated on the server — refresh the dashboard to see Pro.` : `Verification failed: ${vd.error || "unknown"}`);
           },
         });
         rzp.open();
