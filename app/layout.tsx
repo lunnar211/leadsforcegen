@@ -2,9 +2,41 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Nav from "@/components/Nav";
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://leadsforcegen.vercel.app";
+
 export const metadata: Metadata = {
-  title: "LeadsForceGen — Find leads with AI",
-  description: "Generate AI-scored B2B company leads. Free plan with limits, Pro for unlimited leads, CSV export and AI outreach.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "LeadsForceGen — AI Lead Generation Tool | Find B2B Leads Fast",
+    template: "%s | LeadsForceGen",
+  },
+  description:
+    "LeadsForceGen is an AI lead generation tool that finds and scores B2B company leads by industry, location and company size. Start free with limited leads, upgrade to Pro for unlimited leads, CSV export and AI outreach messages.",
+  keywords: [
+    "lead generation tool",
+    "AI lead generation",
+    "B2B leads",
+    "find business leads",
+    "sales leads generator",
+    "LeadsForceGen",
+  ],
+  applicationName: "LeadsForceGen",
+  alternates: { canonical: "/" },
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: "website",
+    siteName: "LeadsForceGen",
+    title: "LeadsForceGen — AI Lead Generation Tool",
+    description:
+      "Find and score B2B company leads with AI. Free plan available — Pro gives unlimited leads, CSV export and AI outreach.",
+    url: SITE_URL,
+  },
+  twitter: {
+    card: "summary",
+    title: "LeadsForceGen — AI Lead Generation Tool",
+    description:
+      "Find and score B2B company leads with AI. Free plan available — Pro gives unlimited leads and AI outreach.",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
