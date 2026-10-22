@@ -3,6 +3,36 @@
 
 create extension if not exists "pgcrypto";
 
+-- ── Migrations for databases created with an earlier schema version ────
+-- CREATE TABLE IF NOT EXISTS is a no-op on pre-existing tables, so columns
+-- and constraints added since then must be applied explicitly (this is
+-- what broke the first run: an older profiles table had no `role`
+-- column, so is_admin() failed). Every statement here is also safe on a
+-- completely fresh database.
+alter table if exists profiles add column if not exists email text;
+alter table if exists profiles add column if not exists plan text not null default 'free';
+alter table if exists profiles add column if not exists role text not null default 'user' check (role in ('user','admin'));
+alter table if exists profiles add column if not exists is_active boolean not null default true;
+alter table if exists profiles add column if not exists created_at timestamptz not null default now();
+
+alter table if exists payments add column if not exists method text;
+alter table if exists payments add column if not exists months int;
+alter table if exists payments add column if not exists proof_path text;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'payments_gateway_check') then
+    alter table payments drop constraint payments_gateway_check;
+    alter table payments add constraint payments_gateway_check
+      check (gateway in ('razorpay','stripe','manual','lemonsqueezy'));
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'payments_status_check') then
+    alter table payments drop constraint payments_status_check;
+    alter table payments add constraint payments_status_check
+      check (status in ('pending','captured','rejected','refunded'));
+  end if;
+end $$;
+
 create table if not exists profiles (
   id uuid primary key,
   email text unique,
