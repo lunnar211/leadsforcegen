@@ -1,13 +1,28 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import ManualPayment from "@/components/ManualPayment";
 
 declare global { interface Window { Razorpay?: new (opts: Record<string, unknown>) => { open: () => void } } }
 
+type Methods = { lemon: boolean; razorpay: boolean; stripe: boolean; manual: boolean };
+
 export default function Checkout() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  // Which gateways the server actually has connected. Only those are
+  // shown — a customer never sees a button that can only fail, and never
+  // sees a raw "env vars not configured" message.
+  const [methods, setMethods] = useState<Methods | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/payments/methods")
+      .then((r) => r.json())
+      .then((d) => { if (alive) setMethods({ lemon: !!d.lemon, razorpay: !!d.razorpay, stripe: !!d.stripe, manual: !!d.manual }); })
+      .catch(() => { if (alive) setMethods({ lemon: false, razorpay: false, stripe: false, manual: false }); });
+    return () => { alive = false; };
+  }, []);
 
   async function payLemon() {
     setBusy(true); setMsg("");
@@ -21,7 +36,7 @@ export default function Checkout() {
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok && d.data?.url) { window.location.href = d.data.url; return; }
-      setMsg(d.error || "Worldwide checkout is not available yet.");
+      setMsg(res.status === 401 ? (d.error || "Sign in first, then try again.") : "Worldwide checkout is not available right now. Please try again shortly.");
     } catch { setMsg("Something went wrong starting checkout. Please try again."); }
     finally { setBusy(false); }
   }
@@ -32,11 +47,11 @@ export default function Checkout() {
       // NOTE: no amount is sent — the server decides the price from its plan map.
       const res = await fetch("/api/payments/create-order", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gateway, plan: "pro" }) });
       const data = await res.json();
-      if (!res.ok) { setMsg(data.error || "Checkout is not available yet. The owner needs to configure a payment gateway (Razorpay or Stripe env vars) in Vercel."); return; }
+      if (!res.ok) { setMsg("That payment option is not available right now. Please try another option, or check back shortly."); return; }
       if (gateway === "stripe" && data.url) { window.location.href = data.url; return; }
       if (gateway === "razorpay") {
         const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-        if (!keyId) { setMsg("Razorpay order created on the server, but NEXT_PUBLIC_RAZORPAY_KEY_ID is not configured, so the checkout popup cannot open here."); return; }
+        if (!keyId) { setMsg("That payment option is not available right now. Please try another option, or check back shortly."); return; }
         await new Promise<void>((resolve, reject) => {
           const s = document.createElement("script"); s.src = "https://checkout.razorpay.com/v1/checkout.js"; s.onload = () => resolve(); s.onerror = () => reject(new Error("load failed")); document.body.appendChild(s);
         });
@@ -59,11 +74,17 @@ export default function Checkout() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10 sm:py-14">
       <h1 className="text-3xl font-bold text-fg">Upgrade to LeadsForceGen Pro</h1>
-      <p className="text-muted text-sm mt-2">Unlimited* leads, CSV export and full AI outreach — $19/mo (₹1,499 via Razorpay). *fair-use 2,000/day.</p>
+      <p className="text-muted text-sm mt-2">Unlimited* leads, CSV export and full AI outreach — $19/mo{methods?.razorpay ? " (₹1,499 via Razorpay)" : ""}. *fair-use 2,000/day.</p>
       <div className="mt-6 space-y-3">
-        <button disabled={busy} onClick={payLemon} className="btn-primary btn-block">🌍 Pay worldwide — Card / PayPal / Apple Pay (Lemon Squeezy)</button>
-        <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>
-        <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>
+        {methods === null && <p className="text-sm text-muted" role="status">Loading payment options…</p>}
+        {methods?.lemon && <button disabled={busy} onClick={payLemon} className="btn-primary btn-block">🌍 Pay worldwide — Card / PayPal / Apple Pay (Lemon Squeezy)</button>}
+        {methods?.razorpay && <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>}
+        {methods?.stripe && <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>}
+        {methods && !methods.lemon && !methods.razorpay && !methods.stripe && (
+          <p className="text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="status">
+            Online card payments are opening very shortly — we are connecting them now. {methods.manual ? "You can pay manually below in the meantime." : "Please check back soon."}
+          </p>
+        )}
       </div>
       {msg && <p className="mt-4 text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="alert">{msg}</p>}
       <ManualPayment />
