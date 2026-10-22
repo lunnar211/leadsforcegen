@@ -32,6 +32,54 @@ type OsmElement = {
   tags?: Record<string, string>;
 };
 
+// Users misspell industries constantly ("Dantist", "Resturant") — and a
+// map search with the wrong spelling finds nothing. Normalize common
+// niches (and near-miss spellings, via edit distance) to a canonical term
+// before building the map query. Unknown niches pass through unchanged.
+const CANONICAL_NICHE: Record<string, string> = {
+  dentist: "dentist", dentists: "dentist", dantist: "dentist", dental: "dentist",
+  restaurant: "restaurant", restaurants: "restaurant", resturant: "restaurant", restraunt: "restaurant",
+  cafe: "cafe", cafes: "cafe", coffee: "cafe",
+  hotel: "hotel", hotels: "hotel",
+  plumber: "plumber", plumbers: "plumber", plumbing: "plumber",
+  electrician: "electrician", electricians: "electrician", eletrician: "electrician", electrical: "electrician",
+  salon: "salon", salons: "salon", hairdresser: "salon", hairdressers: "salon", barber: "salon",
+  gym: "gym", gyms: "gym", fitness: "gym",
+  pharmacy: "pharmacy", pharmacies: "pharmacy", pharmcy: "pharmacy", chemist: "pharmacy",
+  clinic: "clinic", clinics: "clinic", clinc: "clinic", hospital: "clinic", doctor: "clinic", doctors: "clinic",
+  lawyer: "lawyer", lawyers: "lawyer", lawer: "lawyer", attorney: "lawyer", attorneys: "lawyer", legal: "lawyer",
+};
+
+function levenshtein(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cur = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+  }
+  return row[b.length];
+}
+
+export function normalizeNiche(raw: string): string {
+  const base = raw.toLowerCase().trim();
+  if (!base) return base;
+  if (CANONICAL_NICHE[base]) return CANONICAL_NICHE[base];
+  if (base.length >= 5) {
+    let bestKey = "";
+    let bestDist = 3; // accept distance 1-2 only
+    for (const key of Object.keys(CANONICAL_NICHE)) {
+      const d = levenshtein(base, key);
+      if (d < bestDist) { bestDist = d; bestKey = key; }
+    }
+    if (bestKey) return CANONICAL_NICHE[bestKey];
+  }
+  return base;
+}
+
 function nicheTerms(niche: string): string[] {
   const base = niche.toLowerCase().trim();
   const singular = base.replace(/s$/, "");
@@ -56,7 +104,7 @@ function nicheTerms(niche: string): string[] {
 
 async function geocode(location: string): Promise<{ lat: number; lon: number } | null> {
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(location)}`;
-  const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(8000) });
+  const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
   if (!res.ok) return null;
   const data = (await res.json()) as { lat: string; lon: string }[];
   if (!data.length) return null;
@@ -65,7 +113,7 @@ async function geocode(location: string): Promise<{ lat: number; lon: number } |
 
 async function overpass(lat: number, lon: number, terms: string[]): Promise<OsmElement[]> {
   const regex = terms.join("|").replace(/[^a-z0-9| ]/g, "");
-  const ql = `[out:json][timeout:20];(nwr["name"~"${regex}",i](around:25000,${lat},${lon});nwr[~"^(amenity|shop|office|tourism|leisure|healthcare|craft)$"~"${regex}",i](around:25000,${lat},${lon}););out center 200;`;
+  const ql = `[out:json][timeout:15];(nwr["name"~"${regex}",i](around:25000,${lat},${lon});nwr[~"^(amenity|shop|office|tourism|leisure|healthcare|craft)$"~"${regex}",i](around:25000,${lat},${lon}););out center 200;`;
   const mirrors = process.env.OVERPASS_URL
     ? process.env.OVERPASS_URL.split(",").map((s) => s.trim()).filter(Boolean)
     : OVERPASS_MIRRORS;
@@ -78,7 +126,7 @@ async function overpass(lat: number, lon: number, terms: string[]): Promise<OsmE
       method: "POST",
       headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: new URLSearchParams({ data: ql }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(18000),
     });
     if (!res.ok) throw new Error(`overpass ${res.status}`);
     const data = (await res.json()) as { elements?: OsmElement[] };
@@ -183,8 +231,10 @@ export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: numb
 
 export async function searchEverywhere(niche: string, location: string, limit: number): Promise<EngineResult> {
   const empty: EngineResult = { leads: [], pagesRead: 0, placesFound: 0 };
+  const startedAt = Date.now();
   try {
     if (!niche || !location) return empty;
+    niche = normalizeNiche(niche);
     const geo = await geocode(location);
     if (!geo) return empty;
     const elements = await overpass(geo.lat, geo.lon, nicheTerms(niche));
@@ -224,12 +274,12 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (candidates.length >= Math.max(limit * 2, 20)) break;
     }
 
-    // Enrichment runs with limited concurrency under a hard deadline.
-    // The old fully-sequential crawl (up to 24 pages x 5s each, after a
-    // possibly 90s Overpass wait) routinely exceeded the 60s serverless
-    // budget — the platform killed the request and the user saw a bare
-    // "network error". Now: partial results beat no results.
-    const deadline = Date.now() + 35_000;
+    // Enrichment runs with limited concurrency under a hard deadline tied
+    // to the ENGINE start (geocode + Overpass already spent some of it):
+    // the whole engine must finish by ~38s so the route keeps a safety
+    // margin under the 60s serverless limit. Partial results beat a
+    // killed request (which users see as a bare "network error").
+    const deadline = startedAt + 38_000;
     let pagesRead = 0;
     type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean };
     const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false }));
