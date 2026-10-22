@@ -16,7 +16,66 @@ import { alreadyProcessed, recordPayment, recordWebhookEvent } from "@/lib/payme
 //     currency match the server-side plan map.
 export async function POST(req: Request) {
   const raw = await req.text();
-  const gateway = req.headers.get("x-lfg-gateway") || (req.headers.get("stripe-signature") ? "stripe" : "razorpay");
+  const gateway =
+    req.headers.get("x-lfg-gateway") ||
+    (req.headers.get("x-event-name") ? "lemonsqueezy" : req.headers.get("stripe-signature") ? "stripe" : "razorpay");
+
+  if (gateway === "lemonsqueezy") {
+    const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET;
+    const sig = req.headers.get("x-signature") || "";
+    if (!secret) return NextResponse.json({ error: "Lemon Squeezy webhook not configured" }, { status: 503 });
+    const expected = crypto.createHmac("sha256", secret).update(raw).digest("hex");
+    const a = Buffer.from(expected); const b = Buffer.from(sig);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return NextResponse.json({ error: "Invalid Lemon Squeezy signature" }, { status: 400 });
+    }
+    let event: {
+      meta?: { event_name?: string; custom_data?: { user_id?: string } };
+      data?: { id?: string; attributes?: Record<string, unknown> };
+    };
+    try { event = JSON.parse(raw); } catch { return NextResponse.json({ error: "Bad JSON" }, { status: 400 }); }
+    const eventName = event.meta?.event_name || "";
+    const dataId = String(event.data?.id || "");
+    const attrs = event.data?.attributes || {};
+    if (!dataId) return NextResponse.json({ error: "Missing event id" }, { status: 400 });
+    if (await recordWebhookEvent("lemonsqueezy", `${eventName}:${dataId}`, eventName)) {
+      return NextResponse.json({ ok: true, duplicate: true, message: "Event already processed — skipped." });
+    }
+    const userId = event.meta?.custom_data?.user_id || null;
+    const email = String(attrs.user_email || "") || null;
+
+    if (eventName === "order_created" || eventName === "subscription_payment_success" || eventName === "subscription_created") {
+      const paid = attrs.status === "paid" || eventName === "subscription_payment_success";
+      // The variant must be OUR Pro variant when the payload carries one.
+      const variantId = String(
+        (attrs as { variant_id?: unknown }).variant_id ||
+          ((attrs.first_order_item as Record<string, unknown> | undefined)?.variant_id ?? ""),
+      );
+      const expectedVariant = process.env.LEMONSQUEEZY_VARIANT_ID_PRO || "";
+      const variantOk = !expectedVariant || !variantId || variantId === expectedVariant;
+      const paymentId = eventName === "order_created" ? `ls_order_${dataId}` : `ls_subpay_${String(attrs.order_id || dataId)}`;
+      if (paid && variantOk && !(await alreadyProcessed("payment", "lemonsqueezy", paymentId))) {
+        await recordPayment({
+          gateway: "lemonsqueezy",
+          gatewayPaymentId: paymentId,
+          gatewayOrderId: String(attrs.order_id || dataId),
+          userId,
+          email,
+          plan: "pro",
+          amount: Number(attrs.total || 0),
+          currency: String(attrs.currency || "USD"),
+        });
+      }
+    }
+    if (eventName === "subscription_expired" || eventName === "subscription_cancelled") {
+      // Downgrade on expiry/cancellation (service role, server-side only).
+      const { serviceClient } = await import("@/lib/quota");
+      const admin = serviceClient();
+      if (admin && userId) await admin.from("profiles").update({ plan: "free" }).eq("id", userId);
+      if (admin && !userId && email) await admin.from("profiles").update({ plan: "free" }).eq("email", email);
+    }
+    return NextResponse.json({ ok: true });
+  }
 
   if (gateway === "stripe") {
     const secret = process.env.STRIPE_WEBHOOK_SECRET;

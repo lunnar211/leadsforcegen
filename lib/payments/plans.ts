@@ -25,6 +25,17 @@ export const MANUAL_PRICES_NPR: Record<number, number> = {
 export const MANUAL_METHODS = ["esewa", "khalti", "bank"] as const;
 export type ManualMethod = (typeof MANUAL_METHODS)[number];
 
+// Lemon Squeezy (worldwide, Merchant of Record): the price lives in the
+// Variant created in the Lemon Squeezy dashboard; the server only knows
+// the store + variant IDs from env and never trusts client amounts.
+export function lemonConfigured(): boolean {
+  return Boolean(
+    process.env.LEMONSQUEEZY_API_KEY &&
+      process.env.LEMONSQUEEZY_STORE_ID &&
+      process.env.LEMONSQUEEZY_VARIANT_ID_PRO,
+  );
+}
+
 export type PlanId = keyof typeof PLANS;
 export type Gateway = "razorpay" | "stripe";
 

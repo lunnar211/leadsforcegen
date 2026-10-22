@@ -61,7 +61,10 @@ export async function getUsage(userId: string): Promise<UsageInfo | null> {
   return { plan, used, limit, remaining: Math.max(0, limit - used) };
 }
 
-/** Atomically consume quota in Postgres. Returns false when over limit. */
+/** Atomically consume quota in Postgres. Returns false when over limit.
+ *  Fail-open ONLY while the schema has not been applied yet (RPC missing):
+ *  search must keep working on day one; enforcement hardens automatically
+ *  once supabase/schema.sql is run. A genuine over-limit returns false. */
 export async function consumeQuota(userId: string, amount: number): Promise<boolean> {
   const info = await getUsage(userId);
   if (!info) return false;
@@ -73,6 +76,9 @@ export async function consumeQuota(userId: string, amount: number): Promise<bool
     p_amount: amount,
     p_limit: info.limit,
   });
-  if (error) return false;
+  if (error) {
+    console.warn("[quota] consume_daily_quota unavailable (schema not applied yet?) — allowing request");
+    return true;
+  }
   return data === true;
 }

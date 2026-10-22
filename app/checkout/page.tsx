@@ -9,6 +9,23 @@ export default function Checkout() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
+  async function payLemon() {
+    setBusy(true); setMsg("");
+    try {
+      const { supabase } = await import("@/lib/supabaseClient");
+      const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+      const token = data.session?.access_token;
+      const res = await fetch("/api/payments/lemon/checkout", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.data?.url) { window.location.href = d.data.url; return; }
+      setMsg(d.error || "Worldwide checkout is not available yet.");
+    } catch { setMsg("Something went wrong starting checkout. Please try again."); }
+    finally { setBusy(false); }
+  }
+
   async function pay(gateway: "razorpay" | "stripe") {
     setBusy(true); setMsg("");
     try {
@@ -44,7 +61,8 @@ export default function Checkout() {
       <h1 className="text-2xl font-bold text-white">Upgrade to LeadsForceGen Pro</h1>
       <p className="text-slate-400 text-sm mt-2">Unlimited leads, CSV export and full AI outreach — $19/mo (₹1,499 via Razorpay).</p>
       <div className="mt-6 space-y-3">
-        <button disabled={busy} onClick={() => pay("razorpay")} className="w-full bg-indigo-600 hover:bg-indigo-500 rounded-xl py-3 font-semibold disabled:opacity-50">Pay with Razorpay</button>
+        <button disabled={busy} onClick={payLemon} className="w-full bg-indigo-600 hover:bg-indigo-500 rounded-xl py-3 font-semibold disabled:opacity-50">🌍 Pay worldwide — Card / PayPal / Apple Pay (Lemon Squeezy)</button>
+        <button disabled={busy} onClick={() => pay("razorpay")} className="w-full border border-white/20 rounded-xl py-3 font-semibold disabled:opacity-50">Pay with Razorpay (India)</button>
         <button disabled={busy} onClick={() => pay("stripe")} className="w-full border border-white/20 rounded-xl py-3 font-semibold disabled:opacity-50">Pay with Stripe</button>
       </div>
       {msg && <p className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">{msg}</p>}

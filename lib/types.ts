@@ -5,7 +5,14 @@ export type Lead = {
   size: string;
   website: string;
   description: string;
-  score: number; // AI fit score 0-100
+  score: number; // fit/confidence score 0-100
+  // Real-contact fields (Search Everywhere engine): only ever populated
+  // from data the business itself publishes — never invented.
+  email?: string;
+  phone?: string;
+  address?: string;
+  sourceUrl?: string;
+  sourceName?: string;
 };
 
 export type Plan = "free" | "pro";

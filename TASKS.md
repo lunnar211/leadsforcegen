@@ -19,10 +19,10 @@ test with raw output before DONE.
 ## C. Search Everywhere engine
 - [ ] C1. lib/safe-fetch.ts — SSRF-safe, robots cache, 1 req/s/host, 1 MB cap, 5s timeout (draft written 2026-10-22 under the earlier spec; tests pending) — TODO
 - [ ] C2. lib/sources/policy.ts — hard blocklist + breach-dump detector, enforced + tested (draft written 2026-10-22; tests pending) — TODO
-- [ ] C3. Source registry + providers (OSM, Brave, Serper, Google CSE, SearXNG, Foursquare, Yelp, OpenCorporates, Companies House, Wikidata, Common Crawl, CSV/XLSX, domain list) — TODO
+- [ ] C3. Source registry + providers — IN PROGRESS (2026-10-22: engine phase 1 live in lib/engine/search.ts — Nominatim geocode + Overpass POST/3 mirrors + website extraction via safe-fetch, wired into /api/ai/leads with Groq/sample fallback; remaining sources TODO)
 - [ ] C4. Extractors: emails/phones from business sites, ranking, E.164, MX/disposable verification, never invent contacts — TODO
 - [ ] C5. Dedupe (phone/domain/Jaro-Winkler ≥0.88 within 150 m), confidence score, provenance per field — TODO
-- [ ] C6. Orchestrator + POST /api/search: Zod, AI planning, jobs table, batches of 20, polling, Stop, quota — TODO
+- [ ] C6. Orchestrator + POST /api/search — IN PROGRESS (quota + fallback chain live in /api/ai/leads; jobs table/polling UI TODO)
 - [ ] C7. Results UI: TanStack Table, badges, lead drawer, per-source chips, empty/error states — TODO
 
 ## D. AI features
@@ -37,7 +37,7 @@ test with raw output before DONE.
 
 ## F. Plans, payments, admin
 - [x] F1 (core, 2026-10-22). Server quota: daily_usage table + atomic consume_daily_quota() in schema.sql, /api/usage, dashboard displays server values only (localStorage plan/usage removed). Plans-table admin editor still TODO
-- [ ] F2. Payments — IN PROGRESS (2026-10-22: manual eSewa/Khalti/bank flow BUILT — server NPR price map, proof upload to private bucket, admin approve/reject queue activating Pro + subscription period; Razorpay/Stripe verified scaffold retained; Lemon Squeezy still TODO)
+- [ ] F2. Payments — IN PROGRESS (2026-10-22: manual eSewa/Khalti/bank flow BUILT — server NPR price map, proof upload to private bucket, admin approve/reject queue activating Pro + subscription period; Razorpay/Stripe verified scaffold retained; Lemon Squeezy worldwide checkout + signed idempotent webhook BUILT, needs owner LS keys)
 - [ ] F3. Admin: overview, users, subscriptions, money, real-time audit log, source toggles, removal requests, announcements, settings; role check everywhere — TODO
 
 ## G. Design (after the app works)

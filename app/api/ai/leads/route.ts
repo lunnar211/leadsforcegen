@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { sampleLeads, type Lead } from "@/lib/types";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { consumeQuota, getAuthUser, getUsage, quotaConfigured } from "@/lib/quota";
+import { searchEverywhere } from "@/lib/engine/search";
+
+export const maxDuration = 60;
 
 
 async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
@@ -70,6 +73,26 @@ export async function POST(req: Request) {
       );
     }
     quotaUser = { id: user.id, remaining: usage.remaining };
+  }
+
+  // Source order: (1) Search Everywhere engine — real businesses from
+  // public sources with published contacts; (2) Groq AI prospects;
+  // (3) clearly labeled samples. Any engine failure falls through silently.
+  const niche = String(body.industry || body.leadType || "");
+  const where = String(body.location || "");
+  const want = quotaUser ? quotaUser.remaining : 10;
+  const engine = await searchEverywhere(niche, where, Math.min(want, 30));
+  if (engine.leads.length > 0) {
+    const note = `Found ${engine.leads.length} real businesses from public sources (OpenStreetMap + their own websites, ${engine.pagesRead} pages read). Contacts are published by the businesses — verify before outreach.`;
+    if (quotaUser) {
+      const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
+      if (!consumed) {
+        return NextResponse.json({ ok: false, code: "QUOTA_EXCEEDED", error: "Daily limit reached. Upgrade to Pro for more." }, { status: 429 });
+      }
+      const usage = await getUsage(quotaUser.id);
+      return NextResponse.json({ ok: true, leads: engine.leads, source: "search-everywhere", note, usage });
+    }
+    return NextResponse.json({ leads: engine.leads, source: "search-everywhere", note });
   }
 
   const ai = await groqLeads(body);

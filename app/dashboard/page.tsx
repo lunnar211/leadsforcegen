@@ -78,7 +78,7 @@ export default function Dashboard() {
 
   function exportCsv() {
     if (!isPro) { alert("CSV export is a Pro feature. Upgrade to Pro for CSV export."); return; }
-    const rows = [["company", "industry", "location", "size", "website", "score", "description"], ...leads.map(l => [l.company, l.industry, l.location, l.size, l.website, String(l.score), l.description])];
+    const rows = [["company", "industry", "location", "size", "website", "email", "phone", "address", "score", "source_url", "description"], ...leads.map(l => [l.company, l.industry, l.location, l.size, l.website, l.email || "", l.phone || "", l.address || "", String(l.score), l.sourceUrl || "", l.description])];
     const csv = rows.map(r => r.map(c => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "leadsforcegen-leads.csv"; a.click();
   }
@@ -129,8 +129,18 @@ export default function Dashboard() {
             {leads.map((l, i) => (
               <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="flex justify-between"><b className="text-white">{l.company}</b><span className="text-emerald-300 font-bold">AI score {l.score}</span></div>
-                <p className="text-sm text-slate-400 mt-1">{l.industry} · {l.location} · {l.size} employees{l.website ? ` · ${l.website}` : ""}</p>
+                <p className="text-sm text-slate-400 mt-1">{l.industry} · {l.location}{l.size ? ` · ${l.size} employees` : ""}{l.website ? ` · ${l.website}` : ""}</p>
+                {(l.email || l.phone || l.address) && (
+                  <p className="text-sm text-slate-300 mt-1">
+                    {l.email && <>✉️ {l.email} </>}
+                    {l.phone && <>📞 {l.phone} </>}
+                    {l.address && <>📍 {l.address}</>}
+                  </p>
+                )}
                 <p className="text-sm text-slate-300 mt-2">{l.description}</p>
+                {l.sourceUrl && (
+                  <p className="mt-1 text-xs text-slate-500">Source: <a className="underline text-indigo-300" href={l.sourceUrl} target="_blank" rel="noreferrer">{l.sourceName || "public source"}</a></p>
+                )}
                 <button onClick={() => genOutreach(l)} className="mt-3 text-sm bg-white/10 hover:bg-white/15 rounded-lg px-3 py-1.5">✉️ AI outreach</button>
               </div>
             ))}

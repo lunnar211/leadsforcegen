@@ -52,7 +52,7 @@ create table if not exists payments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete set null,
   email text,
-  gateway text not null check (gateway in ('razorpay','stripe','manual')),
+  gateway text not null check (gateway in ('razorpay','stripe','manual','lemonsqueezy')),
   gateway_payment_id text unique,
   gateway_order_id text unique,
   plan text not null default 'pro',
