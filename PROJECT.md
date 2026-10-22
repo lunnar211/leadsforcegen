@@ -31,5 +31,8 @@ scored leads with a source link for every field.
 - One task at a time (see TASKS.md). lint + build + a real test with raw
   output before any task is marked DONE. No fake data anywhere.
 - Secrets: env NAMES only, never values, in code, chat, logs or commits.
-- Working directory on this machine: ~/workspace/leadgen-app
-  (the owner's local path is /home/dipesh/Desktop/leadsgen).
+- Source of truth (owner confirmed 2026-10-22): the GitHub repo
+  github.com/lunnar211/leadsforcegen, hosted on Vercel at
+  https://leadsforcegen.vercel.app. Working copy on this machine:
+  ~/workspace/leadgen-app. (An earlier prompt mentioned
+  /home/dipesh/Desktop/leadsgen — replaced by the repo above.)
