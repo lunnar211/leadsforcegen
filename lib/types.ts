@@ -13,6 +13,11 @@ export type Lead = {
   address?: string;
   sourceUrl?: string;
   sourceName?: string;
+  // Social profile URLs the business publishes on its OWN website
+  // (footer links / schema.org sameAs) — never scraped from the social
+  // platforms themselves.
+  socials?: string[];
+  hours?: string;
 };
 
 export type Plan = "free" | "pro";

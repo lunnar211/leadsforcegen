@@ -181,6 +181,37 @@ async function overpass(lat: number, lon: number, niche: string, terms: string[]
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
+// Social profile links a business publishes on its OWN website (footer /
+// contact page / schema.org sameAs). We collect the LINK from the
+// business's own pages — we never scrape the social platforms themselves
+// (they are on the policy blocklist, and they block bots anyway).
+const SOCIAL_HOSTS = ["facebook.com", "instagram.com", "linkedin.com", "x.com", "twitter.com", "youtube.com", "tiktok.com"];
+
+function cleanSocialUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+    const host = u.hostname.replace(/^www\./, "").replace(/^m\./, "");
+    if (!SOCIAL_HOSTS.includes(host)) return null;
+    const path = u.pathname.replace(/\/$/, "");
+    if (!path || path === "") return null;
+    if (/\/(sharer|share|plugins|dialog|intent|home)(\/|$)/i.test(path)) return null;
+    if (host === "linkedin.com" && !/^\/(company|in)\//.test(path)) return null;
+    return `https://${host}${path}`;
+  } catch {
+    return null;
+  }
+}
+
+function extractSocials(html: string): string[] {
+  const found = new Set<string>();
+  for (const m of html.matchAll(/href=["']([^"']+)["']/gi)) {
+    const cleaned = cleanSocialUrl(m[1]);
+    if (cleaned) found.add(cleaned);
+    if (found.size >= 6) break;
+  }
+  return [...found];
+}
+
 function extractContacts(html: string, domain: string): { email?: string; phone?: string } {
   const out: { email?: string; phone?: string } = {};
   const mailtos = [...html.matchAll(/mailto:([^"'?\s>]+)/gi)].map((m) => decodeURIComponent(m[1]).toLowerCase());
@@ -209,8 +240,8 @@ function extractContacts(html: string, domain: string): { email?: string; phone?
 // OWN website is the highest-trust contact source: the business maintains
 // it for search engines. Extract email / telephone / address from any
 // Organization-like node, including @graph wrappers.
-function extractJsonLd(html: string): { email?: string; phone?: string; address?: string } {
-  const out: { email?: string; phone?: string; address?: string } = {};
+function extractJsonLd(html: string): { email?: string; phone?: string; address?: string; socials: string[] } {
+  const out: { email?: string; phone?: string; address?: string; socials: string[] } = { socials: [] };
   const blocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
   const visit = (node: unknown): void => {
     if (!node || typeof node !== "object") return;
@@ -230,6 +261,14 @@ function extractJsonLd(html: string): { email?: string; phone?: string; address?
           .filter((p) => typeof p === "string" && p)
           .join(", ");
         if (parts) out.address = parts;
+      }
+      if (o.sameAs) {
+        const links = Array.isArray(o.sameAs) ? o.sameAs : [o.sameAs];
+        for (const link of links) {
+          if (typeof link !== "string") continue;
+          const cleaned = cleanSocialUrl(link);
+          if (cleaned && !out.socials.includes(cleaned)) out.socials.push(cleaned);
+        }
       }
     }
   };
@@ -334,8 +373,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // killed request (which users see as a bare "network error").
     const deadline = startedAt + 38_000;
     let pagesRead = 0;
-    type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean };
-    const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false }));
+    type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean; socials: string[] };
+    const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false, socials: [] }));
 
     const enrichOne = async (idx: number): Promise<void> => {
       const c = candidates[idx];
@@ -346,12 +385,13 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       // shows up across many searches and its published contacts rarely
       // change. A cache hit costs ~0ms instead of up to 3 page fetches.
       if (domain) {
-        const hit = await cacheGet<{ email?: string; phone?: string; address?: string; structured: boolean; alive: boolean }>(`site:${domain}`, 7 * 24 * 3600_000);
+        const hit = await cacheGet<{ email?: string; phone?: string; address?: string; structured: boolean; alive: boolean; socials?: string[] }>(`site:${domain}`, 7 * 24 * 3600_000);
         if (hit) {
           e.email = e.email || hit.email;
           e.phone = e.phone || hit.phone;
           e.address = e.address || hit.address;
           e.structured = e.structured || hit.structured;
+          e.socials = hit.socials || [];
           e.websiteAlive = hit.alive;
           return;
         }
@@ -370,13 +410,16 @@ export async function searchEverywhere(niche: string, location: string, limit: n
             e.email = e.email || ld.email || found.email;
             e.phone = e.phone || ld.phone || found.phone;
             e.address = e.address || ld.address;
+            for (const s of [...ld.socials, ...extractSocials(page.text)]) {
+              if (!e.socials.includes(s) && e.socials.length < 6) e.socials.push(s);
+            }
           }
         } catch { /* robots/blocked/dead — skip quietly */ }
       }
       if (domain) {
         void cacheSet(`site:${domain}`, {
           email: e.email, phone: e.phone, address: e.address,
-          structured: e.structured, alive: e.websiteAlive,
+          structured: e.structured, alive: e.websiteAlive, socials: e.socials,
         });
       }
     };
@@ -403,6 +446,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (email && c.website && email.endsWith(`@${domainOf(c.website)}`)) score += 5;
       if (e.structured) score += 5; // contact came from the business's own structured data
       if (mxOk) score += 5; // email domain verified to accept mail (MX records)
+      if (e.socials.length) score += 5; // business publishes its social profiles on its own site
       if (c.precise) score += 10; // canonical OSM tag match (amenity=dentist etc.)
       if (c.distKm <= 1) score += 8; else if (c.distKm <= 5) score += 5; else if (c.distKm <= 15) score += 2;
       if (c.hours) score += 5;
@@ -420,6 +464,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         email,
         phone,
         address: e.address,
+        socials: e.socials.length ? e.socials : undefined,
+        hours: c.hours,
         sourceUrl: `https://www.openstreetmap.org/${c.el.type}/${c.el.id}`,
         sourceName: "OpenStreetMap",
       });

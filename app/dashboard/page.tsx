@@ -118,10 +118,11 @@ export default function Dashboard() {
     void runSearch();
   }
 
-  const EXPORT_COLS = ["company", "industry", "location", "size", "website", "email", "phone", "address", "score", "source_url", "description"] as const;
+  const EXPORT_COLS = ["company", "industry", "location", "size", "website", "email", "phone", "address", "socials", "opening_hours", "score", "source_url", "description"] as const;
   const exportRows = () => leads.map(l => ({
     company: l.company, industry: l.industry, location: l.location, size: l.size, website: l.website,
-    email: l.email || "", phone: l.phone || "", address: l.address || "", score: l.score,
+    email: l.email || "", phone: l.phone || "", address: l.address || "", socials: (l.socials || []).join("; "),
+    opening_hours: l.hours || "", score: l.score,
     source_url: l.sourceUrl || "", description: l.description,
   }));
 
@@ -325,11 +326,21 @@ export default function Dashboard() {
                         <span className="flex-none rounded-full bg-success-bg px-2.5 py-1 text-xs font-bold text-success">Score {l.score}</span>
                       </div>
                       <p className="mt-1 text-sm text-muted break-words">{l.industry} · {l.location}{l.size ? ` · ${l.size} employees` : ""}{l.website ? ` · ${l.website}` : ""}</p>
-                      {(l.email || l.phone || l.address) && (
+                      {(l.email || l.phone || l.address || l.hours) && (
                         <p className="mt-2 text-sm text-fg break-words">
                           {l.email && <>✉️ {l.email}<br /></>}
                           {l.phone && <>📞 {l.phone}<br /></>}
-                          {l.address && <>📍 {l.address}</>}
+                          {l.address && <>📍 {l.address}<br /></>}
+                          {l.hours && <>🕐 {l.hours}</>}
+                        </p>
+                      )}
+                      {l.socials && l.socials.length > 0 && (
+                        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                          {l.socials.map((s) => {
+                            const host = s.replace("https://", "").split("/")[0];
+                            const label = host.includes("facebook") ? "Facebook" : host.includes("instagram") ? "Instagram" : host.includes("linkedin") ? "LinkedIn" : host.includes("youtube") ? "YouTube" : host.includes("tiktok") ? "TikTok" : "X";
+                            return <a key={s} href={s} target="_blank" rel="noreferrer" className="text-accent-text underline">{label}</a>;
+                          })}
                         </p>
                       )}
                       <p className="mt-2 text-sm text-muted break-words">{l.description}</p>

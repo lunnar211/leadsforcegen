@@ -185,7 +185,7 @@ async function handlePost(req: Request) {
   // common repeat request — a hit answers in well under a second instead
   // of re-running the map query and website crawl. Quota still applies.
   const limitWanted = Math.min(want, 30);
-  const searchKey = `search:v3:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
+  const searchKey = `search:v4:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
   let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
   const fromCache = Boolean(engine);
   if (!engine) {
