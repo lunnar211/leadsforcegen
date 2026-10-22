@@ -14,6 +14,17 @@ export const PLANS = {
   },
 } as const;
 
+// Manual payments (eSewa / Khalti / bank transfer) priced in NPR.
+// Server-side only — the client picks months + method, never an amount.
+// Owner: adjust these numbers here if your pricing changes.
+export const MANUAL_PRICES_NPR: Record<number, number> = {
+  1: 2399, // ~1 month of Pro ($19)
+  3: 6499, // 3 months
+  12: 19999, // 12 months
+};
+export const MANUAL_METHODS = ["esewa", "khalti", "bank"] as const;
+export type ManualMethod = (typeof MANUAL_METHODS)[number];
+
 export type PlanId = keyof typeof PLANS;
 export type Gateway = "razorpay" | "stripe";
 

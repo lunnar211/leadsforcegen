@@ -1,34 +1,36 @@
 import { NextResponse } from "next/server";
 import { ADMIN_COOKIE, createAdminSessionToken, isAdminConfigured, verifyAdminCredentials } from "@/lib/adminAuth";
+import { clientIp, counterGet, counterIncr, counterReset } from "@/lib/rate-limit";
 
-// Tiny in-memory rate limit: 5 attempts per minute per IP (per instance).
-const attempts = new Map<string, { count: number; resetAt: number }>();
-function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const rec = attempts.get(ip);
-  if (!rec || rec.resetAt < now) {
-    attempts.set(ip, { count: 1, resetAt: now + 60_000 });
-    return false;
-  }
-  rec.count += 1;
-  return rec.count > 5;
-}
+// Lockout policy: 5 FAILED attempts per (IP + email) within 15 minutes
+// locks further attempts until the window expires. Successful login
+// clears the counter. Counters live in Upstash when configured,
+// in-memory otherwise.
+const MAX_FAILURES = 5;
+const LOCKOUT_MS = 15 * 60_000;
 
 export async function POST(req: Request) {
   if (!isAdminConfigured()) {
     return NextResponse.json(
-      { error: "Admin login is not configured on the server yet." },
+      { ok: false, error: "Admin login is not configured on the server yet." },
       { status: 503 },
     );
   }
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (rateLimited(ip)) {
-    return NextResponse.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
-  }
   const body = (await req.json().catch(() => ({}))) as { email?: string; password?: string };
-  if (!body.email || !body.password || !verifyAdminCredentials(body.email, body.password)) {
-    return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+  const email = (body.email || "").trim().toLowerCase();
+  const failKey = `admin-fail:${clientIp(req)}:${email}`;
+
+  if ((await counterGet(failKey)) >= MAX_FAILURES) {
+    return NextResponse.json(
+      { ok: false, error: "Too many failed attempts. Locked for up to 15 minutes." },
+      { status: 429 },
+    );
   }
+  if (!email || !body.password || !verifyAdminCredentials(email, body.password)) {
+    await counterIncr(failKey, LOCKOUT_MS);
+    return NextResponse.json({ ok: false, error: "Invalid email or password." }, { status: 401 });
+  }
+  await counterReset(failKey);
   const res = NextResponse.json({ ok: true });
   res.cookies.set(ADMIN_COOKIE, createAdminSessionToken(), {
     httpOnly: true,

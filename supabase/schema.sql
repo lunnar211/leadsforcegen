@@ -52,15 +52,23 @@ create table if not exists payments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete set null,
   email text,
-  gateway text not null check (gateway in ('razorpay','stripe')),
+  gateway text not null check (gateway in ('razorpay','stripe','manual')),
   gateway_payment_id text unique,
   gateway_order_id text unique,
   plan text not null default 'pro',
   amount bigint not null,
   currency text not null,
-  status text not null default 'captured',
+  status text not null default 'captured' check (status in ('pending','captured','rejected','refunded')),
+  method text,
+  months int,
+  proof_path text,
   created_at timestamptz not null default now()
 );
+
+-- Private bucket for manual-payment proof images (service-role access only).
+insert into storage.buckets (id, name, public)
+values ('payment-proofs', 'payment-proofs', false)
+on conflict (id) do nothing;
 
 -- Webhook dedupe: one row per gateway event id, ever.
 create table if not exists webhook_events (

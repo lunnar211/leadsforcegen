@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import ManualPaymentsQueue from "@/components/ManualPaymentsQueue";
 
 type UserRow = { id: string; email: string; plan: string; role: string; is_active: boolean; created_at: string };
 
@@ -67,6 +68,7 @@ export default function AdminPanel() {
           </tbody>
         </table>
       </div>
+      <ManualPaymentsQueue />
       <div className="grid md:grid-cols-2 gap-4 mt-8">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5"><h3 className="font-semibold text-white">Activity log</h3>
           <ul className="text-sm text-slate-300 mt-3 space-y-2">{activity.map((a, i) => <li key={i}>• {a}</li>)}</ul></div>

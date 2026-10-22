@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import ManualPayment from "@/components/ManualPayment";
 
 declare global { interface Window { Razorpay?: new (opts: Record<string, unknown>) => { open: () => void } } }
 
@@ -48,6 +49,7 @@ export default function Checkout() {
         <button disabled={busy} onClick={() => pay("stripe")} className="w-full border border-white/20 rounded-xl py-3 font-semibold disabled:opacity-50">Pay with Stripe</button>
       </div>
       {msg && <p className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">{msg}</p>}
+      <ManualPayment />
       <p className="text-xs text-slate-500 mt-4">🔒 Secure by design: prices are set on the server, payments are signature-verified on the server, and duplicate payments / replayed webhooks are automatically skipped — a browser success message alone can never activate Pro.</p>
       <Link href="/dashboard" className="block text-center mt-6 text-sm text-indigo-300">← Back to dashboard</Link>
     </div>

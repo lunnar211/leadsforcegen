@@ -37,7 +37,7 @@ test with raw output before DONE.
 
 ## F. Plans, payments, admin
 - [ ] F1. Plans table (admin-editable), atomic consume_daily_quota() with row locking — TODO
-- [ ] F2. Payments: Lemon Squeezy + verified idempotent webhook; manual eSewa/Khalti/bank with proof review; no client prices — TODO
+- [ ] F2. Payments — IN PROGRESS (2026-10-22: manual eSewa/Khalti/bank flow BUILT — server NPR price map, proof upload to private bucket, admin approve/reject queue activating Pro + subscription period; Razorpay/Stripe verified scaffold retained; Lemon Squeezy still TODO)
 - [ ] F3. Admin: overview, users, subscriptions, money, real-time audit log, source toggles, removal requests, announcements, settings; role check everywhere — TODO
 
 ## G. Design (after the app works)
