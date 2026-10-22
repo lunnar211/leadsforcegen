@@ -21,7 +21,7 @@ async function AdminGate() {
 
 export default function AdminPage() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-md px-4 py-14 text-slate-400">Loading…</div>}>
+    <Suspense fallback={<div className="mx-auto max-w-md px-4 py-14 text-muted">Loading…</div>}>
       <AdminGate />
     </Suspense>
   );

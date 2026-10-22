@@ -26,19 +26,19 @@ export default function Unsubscribe() {
   }
 
   return (
-    <div className="mx-auto max-w-xl px-4 py-12">
-      <h1 className="text-2xl font-bold text-white">Unsubscribe / remove my business</h1>
-      <p className="mt-3 text-sm leading-6 text-slate-300">
+    <div className="mx-auto w-full max-w-xl px-4 py-10 sm:py-12">
+      <h1 className="text-3xl font-bold text-fg">Unsubscribe / remove my business</h1>
+      <p className="mt-3 text-sm leading-6 text-muted">
         LeadsForceGen only lists publicly available business information. If you do not want your business
         to appear in our results, enter its domain or business email below. We will add it to our blocklist
         and exclude it from all future searches and exports.
       </p>
       <form onSubmit={submit} className="mt-6 space-y-3">
-        <input aria-label="Business domain" className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3" placeholder="Business domain (e.g. example.com)" value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} />
-        <input aria-label="Business email" className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3" placeholder="Business email (optional)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-        <input aria-label="Company name" className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3" placeholder="Company name (optional)" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
-        {msg && <p className="text-sm text-slate-300" role="status">{msg}</p>}
-        <button className="w-full rounded-xl bg-indigo-600 py-3 font-semibold hover:bg-indigo-500">Remove my business</button>
+        <label className="label" htmlFor="unsub-domain">Business domain</label><input id="unsub-domain" aria-label="Business domain" className="input" placeholder="Business domain (e.g. example.com)" value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} />
+        <label className="label" htmlFor="unsub-email">Business email <span className="font-normal text-muted">(optional)</span></label><input id="unsub-email" aria-label="Business email" className="input" placeholder="Business email" type="email" inputMode="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        <label className="label" htmlFor="unsub-company">Company name <span className="font-normal text-muted">(optional)</span></label><input id="unsub-company" aria-label="Company name" className="input" placeholder="Company name" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} />
+        {msg && <p className="text-sm text-fg" role="status">{msg}</p>}
+        <button className="btn-primary btn-block">Remove my business</button>
       </form>
     </div>
   );

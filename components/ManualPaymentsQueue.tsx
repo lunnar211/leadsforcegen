@@ -46,22 +46,22 @@ export default function ManualPaymentsQueue() {
 
   if (!loaded) return null;
   return (
-    <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5">
-      <h3 className="font-semibold text-white">Manual payments awaiting review ({rows.length})</h3>
-      {msg && <p className="mt-2 text-sm text-slate-300" role="status">{msg}</p>}
+    <div className="card mt-8 p-5">
+      <h3 className="font-semibold text-fg">Manual payments awaiting review ({rows.length})</h3>
+      {msg && <p className="mt-2 text-sm text-fg" role="status">{msg}</p>}
       {rows.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-400">No pending eSewa/Khalti/bank submissions. New submissions appear here for approval — Pro only activates after you approve.</p>
+        <p className="mt-2 text-sm text-muted">No pending eSewa/Khalti/bank submissions. New submissions appear here for approval — Pro only activates after you approve.</p>
       ) : (
         <ul className="mt-3 space-y-3">
           {rows.map((r) => (
-            <li key={r.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 p-3 text-sm">
-              <span className="text-white">{r.email || "unknown"}</span>
+            <li key={r.id} className="flex flex-wrap items-center gap-3 rounded-[var(--radius)] border border-border p-3 text-sm">
+              <span className="text-fg font-medium break-all">{r.email || "unknown"}</span>
               <span>{r.method} · {r.months} mo · {r.currency} {Number(r.amount).toLocaleString()}</span>
-              <span className="text-slate-500">{String(r.created_at).slice(0, 16).replace("T", " ")}</span>
-              {r.proofUrl && (<a href={r.proofUrl} target="_blank" rel="noreferrer" className="underline text-indigo-300">View proof</a>)}
+              <span className="text-muted">{String(r.created_at).slice(0, 16).replace("T", " ")}</span>
+              {r.proofUrl && (<a href={r.proofUrl} target="_blank" rel="noreferrer" className="underline text-accent-text font-semibold">View proof</a>)}
               <span className="ml-auto flex gap-2">
-                <button onClick={() => act(r.id, "approve")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold">Approve</button>
-                <button onClick={() => act(r.id, "reject")} className="rounded-lg border border-white/20 px-3 py-1.5 text-xs">Reject</button>
+                <button onClick={() => act(r.id, "approve")} className="btn-primary !min-h-[44px] px-3 py-1.5 text-xs">Approve</button>
+                <button onClick={() => act(r.id, "reject")} className="btn-ghost !min-h-[44px] px-3 py-1.5 text-xs">Reject</button>
               </span>
             </li>
           ))}

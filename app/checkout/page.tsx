@@ -57,18 +57,18 @@ export default function Checkout() {
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-14">
-      <h1 className="text-2xl font-bold text-white">Upgrade to LeadsForceGen Pro</h1>
-      <p className="text-slate-400 text-sm mt-2">Unlimited leads, CSV export and full AI outreach — $19/mo (₹1,499 via Razorpay).</p>
+    <div className="mx-auto w-full max-w-md px-4 py-10 sm:py-14">
+      <h1 className="text-3xl font-bold text-fg">Upgrade to LeadsForceGen Pro</h1>
+      <p className="text-muted text-sm mt-2">Unlimited* leads, CSV export and full AI outreach — $19/mo (₹1,499 via Razorpay). *fair-use 2,000/day.</p>
       <div className="mt-6 space-y-3">
-        <button disabled={busy} onClick={payLemon} className="w-full bg-indigo-600 hover:bg-indigo-500 rounded-xl py-3 font-semibold disabled:opacity-50">🌍 Pay worldwide — Card / PayPal / Apple Pay (Lemon Squeezy)</button>
-        <button disabled={busy} onClick={() => pay("razorpay")} className="w-full border border-white/20 rounded-xl py-3 font-semibold disabled:opacity-50">Pay with Razorpay (India)</button>
-        <button disabled={busy} onClick={() => pay("stripe")} className="w-full border border-white/20 rounded-xl py-3 font-semibold disabled:opacity-50">Pay with Stripe</button>
+        <button disabled={busy} onClick={payLemon} className="btn-primary btn-block">🌍 Pay worldwide — Card / PayPal / Apple Pay (Lemon Squeezy)</button>
+        <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>
+        <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>
       </div>
-      {msg && <p className="mt-4 text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">{msg}</p>}
+      {msg && <p className="mt-4 text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="alert">{msg}</p>}
       <ManualPayment />
-      <p className="text-xs text-slate-500 mt-4">🔒 Secure by design: prices are set on the server, payments are signature-verified on the server, and duplicate payments / replayed webhooks are automatically skipped — a browser success message alone can never activate Pro.</p>
-      <Link href="/dashboard" className="block text-center mt-6 text-sm text-indigo-300">← Back to dashboard</Link>
+      <p className="text-xs text-muted mt-4">🔒 Secure by design: prices are set on the server, payments are signature-verified on the server, and duplicate payments / replayed webhooks are automatically skipped — a browser success message alone can never activate Pro.</p>
+      <Link href="/dashboard" className="block text-center mt-6 text-sm font-semibold text-accent-text underline">← Back to dashboard</Link>
     </div>
   );
 }

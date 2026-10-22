@@ -63,31 +63,31 @@ export default function ManualPayment() {
   const price = info.pricesNpr[months];
 
   return (
-    <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-5">
-      <h2 className="font-semibold text-white">Pay manually — eSewa / Khalti / Bank (Nepal)</h2>
+    <div className="card mt-8 p-5">
+      <h2 className="font-semibold text-fg">Pay manually — eSewa / Khalti / Bank (Nepal)</h2>
       {!info.storageConfigured ? (
-        <p className="mt-2 text-sm text-amber-200">Manual payments open as soon as the owner finishes connecting the database. Check back shortly.</p>
+        <p className="mt-2 text-sm text-warning">Manual payments open as soon as the owner finishes connecting the database. Check back shortly.</p>
       ) : !info.instructions ? (
-        <p className="mt-2 text-sm text-amber-200">The owner has not published payment receiving details yet. Please check back shortly.</p>
+        <p className="mt-2 text-sm text-warning">The owner has not published payment receiving details yet. Please check back shortly.</p>
       ) : (
         <>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">{info.instructions}</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{info.instructions}</p>
           <form onSubmit={submit} className="mt-4 space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <select aria-label="Payment method" className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5" value={method} onChange={(e) => setMethod(e.target.value)}>
+              <label className="label" htmlFor="mp-method">Payment method</label><select id="mp-method" aria-label="Payment method" className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
                 {info.methods.map((m) => (<option key={m} value={m}>{m === "esewa" ? "eSewa" : m === "khalti" ? "Khalti" : "Bank transfer"}</option>))}
               </select>
-              <select aria-label="Duration" className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5" value={months} onChange={(e) => setMonths(e.target.value)}>
+              <label className="label" htmlFor="mp-months">Duration</label><select id="mp-months" aria-label="Duration" className="input" value={months} onChange={(e) => setMonths(e.target.value)}>
                 {Object.keys(info.pricesNpr).map((m) => (<option key={m} value={m}>{m} month{Number(m) > 1 ? "s" : ""} — NPR {info.pricesNpr[m].toLocaleString()}</option>))}
               </select>
             </div>
-            <p className="text-sm text-slate-300">Send exactly <b className="text-white">NPR {price?.toLocaleString()}</b>, then upload the payment screenshot:</p>
-            <input aria-label="Payment proof image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] || null)} className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-sm" />
-            <button disabled={busy} className="w-full rounded-xl bg-emerald-600 py-3 font-semibold hover:bg-emerald-500 disabled:opacity-50">{busy ? "Submitting…" : "Submit payment proof"}</button>
+            <p className="text-sm text-muted">Send exactly <b className="text-fg">NPR {price?.toLocaleString()}</b>, then upload the payment screenshot:</p>
+            <label className="label" htmlFor="mp-proof">Payment screenshot</label><input id="mp-proof" aria-label="Payment proof image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] || null)} className="input text-sm" />
+            <button disabled={busy} className="btn-primary btn-block">{busy ? "Submitting…" : "Submit payment proof"}</button>
           </form>
         </>
       )}
-      {msg && <p className="mt-3 text-sm text-slate-200" role="status">{msg}</p>}
+      {msg && <p className="mt-3 text-sm text-fg" role="status">{msg}</p>}
     </div>
   );
 }

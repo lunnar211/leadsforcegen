@@ -1,8 +1,25 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
 
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://leadsforcegen.vercel.app";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0b0f" },
+  ],
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -39,18 +56,25 @@ export const metadata: Metadata = {
   },
 };
 
+// Runs before first paint: applies the saved theme (or the OS preference)
+// so there is no flash or layout shift.
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("lfg-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full">
-      <body className="min-h-full flex flex-col bg-slate-950 text-slate-100 antialiased">
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
+      <body className="min-h-[100dvh] flex flex-col bg-bg text-fg font-sans antialiased">
         <Nav />
-        <main className="flex-1">{children}</main>
-        <footer className="border-t border-white/10 py-6 text-center text-xs text-slate-500">
+        <main className="flex-1 w-full">{children}</main>
+        <footer className="border-t border-border py-6 safe-b text-center text-xs text-muted">
           <p>LeadsForceGen — AI-generated prospects must be verified before outreach.</p>
-          <nav className="mt-2 flex justify-center gap-4" aria-label="Legal">
-            <a className="underline hover:text-slate-300" href="/privacy">Privacy</a>
-            <a className="underline hover:text-slate-300" href="/terms">Terms</a>
-            <a className="underline hover:text-slate-300" href="/unsubscribe">Unsubscribe / remove a business</a>
+          <nav className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-2 px-4" aria-label="Legal">
+            <a className="underline hover:text-fg" href="/privacy">Privacy</a>
+            <a className="underline hover:text-fg" href="/terms">Terms</a>
+            <a className="underline hover:text-fg" href="/unsubscribe">Unsubscribe / remove a business</a>
           </nav>
         </footer>
       </body>

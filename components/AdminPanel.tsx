@@ -45,35 +45,35 @@ export default function AdminPanel() {
 
   const cards = [["Total users", stats.users], ["Searches", stats.searches], ["Leads generated", stats.leads], ["Pro subscribers", stats.pro]] as const;
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-2xl font-bold text-white">LeadsForceGen — Admin Panel</h1>
-      <p className="text-sm text-slate-400 mt-2">{live ? "Live data from Supabase." : "Demo / sample data — Supabase is not connected or returned no rows. Connect Supabase and run supabase/schema.sql to see live data."}</p>
-      <p className="text-xs text-emerald-300 mt-2">Protected: this panel loads only after the owner admin login (email + password, server-verified). Live data actions still require Supabase RLS policies for profiles.role = &apos;admin&apos;.</p>
-      <button onClick={async () => { await fetch("/api/admin/login", { method: "DELETE" }); location.reload(); }} className="mt-3 border border-white/20 rounded-lg px-3 py-1.5 text-xs">Log out of admin</button>
-      <div className="grid md:grid-cols-4 gap-3 mt-6">
-        {cards.map(([k, v]) => <div key={k} className="rounded-2xl border border-white/10 bg-white/5 p-5"><p className="text-sm text-slate-400">{k}</p><p className="text-3xl font-extrabold text-white mt-1">{v}</p></div>)}
+    <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:py-10">
+      <h1 className="text-3xl font-bold text-fg">Admin Panel</h1>
+      <p className="text-sm text-muted mt-2">{live ? "Live data from Supabase." : "Demo / sample data — Supabase is not connected or returned no rows. Connect Supabase and run supabase/schema.sql to see live data."}</p>
+      <p className="text-xs text-success mt-2">Protected: this panel loads only after the owner admin login (email + password, server-verified). Live data actions still require Supabase RLS policies for profiles.role = &apos;admin&apos;.</p>
+      <button onClick={async () => { await fetch("/api/admin/login", { method: "DELETE" }); location.reload(); }} className="btn-ghost mt-3 px-3 py-1.5 text-xs">Log out of admin</button>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
+        {cards.map(([k, v]) => <div key={k} className="card p-5"><p className="text-sm text-muted">{k}</p><p className="text-3xl font-extrabold text-fg mt-1">{v}</p></div>)}
       </div>
-      <h2 className="font-semibold text-white mt-8">Users {isSupabaseConfigured ? "" : "(demo)"}</h2>
-      <div className="overflow-x-auto mt-3 rounded-2xl border border-white/10">
+      <h2 className="font-semibold text-fg mt-8">Users {isSupabaseConfigured ? "" : "(demo)"}</h2>
+      <div className="card mt-3 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-white/5 text-left text-slate-300"><tr><th className="p-3">Email</th><th className="p-3">Plan</th><th className="p-3">Role</th><th className="p-3">Status</th><th className="p-3">Joined</th><th className="p-3">Controls</th></tr></thead>
+          <thead className="bg-surface text-left text-muted"><tr><th className="p-3">Email</th><th className="p-3">Plan</th><th className="p-3">Role</th><th className="p-3">Status</th><th className="p-3">Joined</th><th className="p-3">Controls</th></tr></thead>
           <tbody>{users.map(u => (
-            <tr key={u.id} className="border-t border-white/5">
-              <td className="p-3 text-white">{u.email}</td><td className="p-3">{u.plan}</td><td className="p-3">{u.role}</td>
+            <tr key={u.id} className="border-t border-border">
+              <td className="p-3 text-fg break-all">{u.email}</td><td className="p-3">{u.plan}</td><td className="p-3">{u.role}</td>
               <td className="p-3">{u.is_active ? "Active" : "Banned / inactive"}</td><td className="p-3">{String(u.created_at).slice(0,10)}</td>
               <td className="p-3 flex gap-2">
-                <button onClick={() => updateUser(u, { plan: u.plan === "pro" ? "free" : "pro" })} className="border border-white/20 rounded-lg px-2 py-1 text-xs">Toggle plan</button>
-                <button onClick={() => updateUser(u, { is_active: !u.is_active })} className="border border-white/20 rounded-lg px-2 py-1 text-xs">{u.is_active ? "Ban / deactivate" : "Reactivate"}</button>
+                <button onClick={() => updateUser(u, { plan: u.plan === "pro" ? "free" : "pro" })} className="btn-ghost !min-h-[44px] px-2 py-1 text-xs">Toggle plan</button>
+                <button onClick={() => updateUser(u, { is_active: !u.is_active })} className="btn-ghost !min-h-[44px] px-2 py-1 text-xs">{u.is_active ? "Ban / deactivate" : "Reactivate"}</button>
               </td></tr>))}
           </tbody>
         </table>
       </div>
       <ManualPaymentsQueue />
       <div className="grid md:grid-cols-2 gap-4 mt-8">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5"><h3 className="font-semibold text-white">Activity log</h3>
-          <ul className="text-sm text-slate-300 mt-3 space-y-2">{activity.map((a, i) => <li key={i}>• {a}</li>)}</ul></div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5"><h3 className="font-semibold text-white">Subscriptions overview</h3>
-          <p className="text-sm text-slate-300 mt-3">Pro subscribers: {stats.pro} · Free users: {Math.max(0, stats.users - stats.pro)}<br />Payments are only upgraded after server-verified Razorpay / Stripe payment (see /api/payments). Client success callbacks never upgrade a plan by themselves.<br />Est. MRR (demo pricing $19/Pro): ${stats.pro * 19}/mo</p></div>
+        <div className="card p-5"><h3 className="font-semibold text-fg">Activity log</h3>
+          <ul className="text-sm text-muted mt-3 space-y-2">{activity.map((a, i) => <li key={i}>• {a}</li>)}</ul></div>
+        <div className="card p-5"><h3 className="font-semibold text-fg">Subscriptions overview</h3>
+          <p className="text-sm text-muted mt-3">Pro subscribers: {stats.pro} · Free users: {Math.max(0, stats.users - stats.pro)}<br />Payments are only upgraded after server-verified Razorpay / Stripe payment (see /api/payments). Client success callbacks never upgrade a plan by themselves.<br />Est. MRR (demo pricing $19/Pro): ${stats.pro * 19}/mo</p></div>
       </div>
     </div>
   );
