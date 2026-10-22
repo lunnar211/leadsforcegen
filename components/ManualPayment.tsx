@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 
 type Info = {
@@ -72,6 +73,13 @@ export default function ManualPayment() {
       ) : (
         <>
           <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{info.instructions}</p>
+          {method === "esewa" && (
+            <div className="mt-4 text-center">
+              {/* The owner's own eSewa receive QR, published by him for this checkout. */}
+              <Image src="/esewa-qr.png" alt="eSewa QR code — scan to pay Dipesh Karki" width={192} height={192} className="mx-auto h-48 w-48 rounded-lg border border-border bg-white p-2" />
+              <p className="mt-2 text-xs text-muted">Scan with eSewa or any FonePay-network banking app to pay.</p>
+            </div>
+          )}
           <form onSubmit={submit} className="mt-4 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <label className="label" htmlFor="mp-method">Payment method</label><select id="mp-method" aria-label="Payment method" className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
