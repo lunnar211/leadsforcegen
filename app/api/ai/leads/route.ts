@@ -14,6 +14,7 @@ async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,

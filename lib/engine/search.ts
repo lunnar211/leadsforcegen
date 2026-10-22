@@ -1,13 +1,18 @@
 import "server-only";
+import { resolveMx } from "node:dns/promises";
 import { safeFetch } from "@/lib/safe-fetch";
 import type { Lead } from "@/lib/types";
 
-// Search Everywhere — phase 1 (public sources only, per policy):
+// Search Everywhere — phase 2 (public sources only, per policy):
 //   1. Geocode the location with Nominatim (proper User-Agent, A5 rules).
-//   2. Find real businesses around it with Overpass (3 mirrors, fallback).
-//   3. For businesses with a website, read the homepage + /contact through
-//      safe-fetch (robots + SSRF + blocklist enforced) and extract the
-//      business contacts THEY publish. Contacts are never invented.
+//   2. Find real businesses around it with Overpass (mirrors raced in
+//      parallel — first good answer wins).
+//   3. For businesses with a website, read the homepage + /contact pages
+//      through safe-fetch (robots + SSRF + blocklist enforced) with limited
+//      concurrency under a hard deadline, and extract the business
+//      contacts THEY publish — including their schema.org JSON-LD
+//      structured data, the highest-trust source. Contacts never invented.
+//   4. Verify each published email's domain really accepts mail (DNS MX).
 // Every lead carries provenance (sourceUrl). Any failure returns [] so the
 // caller falls back to the next source — this function never throws.
 
@@ -60,25 +65,31 @@ async function geocode(location: string): Promise<{ lat: number; lon: number } |
 
 async function overpass(lat: number, lon: number, terms: string[]): Promise<OsmElement[]> {
   const regex = terms.join("|").replace(/[^a-z0-9| ]/g, "");
-  const ql = `[out:json][timeout:25];(nwr["name"~"${regex}",i](around:25000,${lat},${lon});nwr[~"^(amenity|shop|office|tourism|leisure|healthcare)$"~"${regex}",i](around:25000,${lat},${lon}););out center 200;`;
+  const ql = `[out:json][timeout:20];(nwr["name"~"${regex}",i](around:25000,${lat},${lon});nwr[~"^(amenity|shop|office|tourism|leisure|healthcare|craft)$"~"${regex}",i](around:25000,${lat},${lon}););out center 200;`;
   const mirrors = process.env.OVERPASS_URL
     ? process.env.OVERPASS_URL.split(",").map((s) => s.trim()).filter(Boolean)
     : OVERPASS_MIRRORS;
-  for (const mirror of mirrors) {
-    try {
-      // Overpass's canonical interface is POST with a form body.
-      const res = await fetch(mirror, {
-        method: "POST",
-        headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-        body: new URLSearchParams({ data: ql }),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!res.ok) continue;
-      const data = (await res.json()) as { elements?: OsmElement[] };
-      if (data.elements) return data.elements;
-    } catch { /* try next mirror */ }
+  // Race ALL mirrors in parallel and take the first good answer. The old
+  // sequential loop could stack 3 x 30s timeouts and blow the serverless
+  // time budget — that surfaced to users as a "network error".
+  const attempts = mirrors.map(async (mirror): Promise<OsmElement[]> => {
+    // Overpass's canonical interface is POST with a form body.
+    const res = await fetch(mirror, {
+      method: "POST",
+      headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams({ data: ql }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!res.ok) throw new Error(`overpass ${res.status}`);
+    const data = (await res.json()) as { elements?: OsmElement[] };
+    if (!data.elements) throw new Error("overpass empty");
+    return data.elements;
+  });
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return [];
   }
-  return [];
 }
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
@@ -105,6 +116,59 @@ function extractContacts(html: string, domain: string): { email?: string; phone?
   const tel = html.match(/tel:(\+?[0-9\s()-]{7,20})/i);
   if (tel) out.phone = tel[1].trim();
   return out;
+}
+
+// Structured data (schema.org JSON-LD) that a business publishes on its
+// OWN website is the highest-trust contact source: the business maintains
+// it for search engines. Extract email / telephone / address from any
+// Organization-like node, including @graph wrappers.
+function extractJsonLd(html: string): { email?: string; phone?: string; address?: string } {
+  const out: { email?: string; phone?: string; address?: string } = {};
+  const blocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    const o = node as Record<string, unknown>;
+    if (Array.isArray(o["@graph"])) o["@graph"].forEach(visit);
+    const type = String(o["@type"] || "");
+    if (/organization|localbusiness|store|restaurant|dentist|medical|professionalservice/i.test(type) || o.email || o.telephone) {
+      if (!out.email && typeof o.email === "string") {
+        const e = o.email.replace(/^mailto:/i, "").trim().toLowerCase();
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.email = e;
+      }
+      if (!out.phone && typeof o.telephone === "string" && o.telephone.trim().length >= 7) out.phone = o.telephone.trim();
+      if (!out.address && o.address && typeof o.address === "object") {
+        const a = o.address as Record<string, unknown>;
+        const parts = [a.streetAddress, a.addressLocality, a.addressRegion, a.postalCode, a.addressCountry]
+          .filter((p) => typeof p === "string" && p)
+          .join(", ");
+        if (parts) out.address = parts;
+      }
+    }
+  };
+  for (const raw of blocks) {
+    try { visit(JSON.parse(raw)); } catch { /* malformed JSON-LD — ignore */ }
+    if (out.email && out.phone && out.address) break;
+  }
+  return out;
+}
+
+// MX check: does the email's domain actually accept mail? This VERIFIES a
+// published address (never invents one) — a domain with no MX records is a
+// strong sign of a dead/typo'd address, so it earns no confidence bonus.
+const mxCache = new Map<string, Promise<boolean>>();
+function emailDomainHasMx(email: string): Promise<boolean> {
+  const domain = email.split("@")[1] || "";
+  if (!domain) return Promise.resolve(false);
+  let p = mxCache.get(domain);
+  if (!p) {
+    p = Promise.race([
+      resolveMx(domain).then((r) => r.length > 0).catch(() => false),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 3000)),
+    ]);
+    mxCache.set(domain, p);
+  }
+  return p;
 }
 
 function domainOf(website: string): string {
@@ -160,36 +224,62 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (candidates.length >= Math.max(limit * 2, 20)) break;
     }
 
+    // Enrichment runs with limited concurrency under a hard deadline.
+    // The old fully-sequential crawl (up to 24 pages x 5s each, after a
+    // possibly 90s Overpass wait) routinely exceeded the 60s serverless
+    // budget — the platform killed the request and the user saw a bare
+    // "network error". Now: partial results beat no results.
+    const deadline = Date.now() + 35_000;
     let pagesRead = 0;
-    const leads: Lead[] = [];
-    for (const c of candidates) {
-      let email = c.email;
-      let phone = c.phone;
-      let websiteAlive = false;
-      if (c.website && pagesRead < 24) {
-        const domain = domainOf(c.website);
-        const base = c.website.startsWith("http") ? c.website : `https://${c.website}`;
-        for (const path of [base, `${base.replace(/\/$/, "")}/contact`]) {
-          try {
-            const page = await safeFetch(path);
-            if (page.status >= 200 && page.status < 400) {
-              websiteAlive = true;
-              pagesRead += 1;
-              const found = extractContacts(page.text, domain);
-              email = email || found.email;
-              phone = phone || found.phone;
-            }
-          } catch { /* robots/blocked/dead — skip quietly */ }
-          if (email && phone) break;
-        }
+    type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean };
+    const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false }));
+
+    const enrichOne = async (idx: number): Promise<void> => {
+      const c = candidates[idx];
+      const e = enriched[idx];
+      if (!c.website || pagesRead >= 24 || Date.now() > deadline) return;
+      const domain = domainOf(c.website);
+      const base = (c.website.startsWith("http") ? c.website : `https://${c.website}`).replace(/\/$/, "");
+      for (const path of [base, `${base}/contact`, `${base}/contact-us`]) {
+        if ((e.email && e.phone) || pagesRead >= 24 || Date.now() > deadline) break;
+        try {
+          const page = await safeFetch(path);
+          if (page.status >= 200 && page.status < 400) {
+            e.websiteAlive = true;
+            pagesRead += 1;
+            const ld = extractJsonLd(page.text);
+            if (ld.email || ld.phone) e.structured = true;
+            const found = extractContacts(page.text, domain);
+            e.email = e.email || ld.email || found.email;
+            e.phone = e.phone || ld.phone || found.phone;
+            e.address = e.address || ld.address;
+          }
+        } catch { /* robots/blocked/dead — skip quietly */ }
       }
+    };
+    for (let i = 0; i < candidates.length; i += 4) {
+      if (Date.now() > deadline) break;
+      await Promise.all(candidates.slice(i, i + 4).map((_, j) => enrichOne(i + j)));
+    }
+
+    const leads: Lead[] = [];
+    for (let idx = 0; idx < candidates.length; idx++) {
+      const c = candidates[idx];
+      const e = enriched[idx];
+      const email = e.email;
+      const phone = e.phone;
+      const websiteAlive = e.websiteAlive;
+      // Verify (never invent): does the published email's domain accept mail?
+      const mxOk = email ? await emailDomainHasMx(email) : false;
       // Confidence (subset of the spec formula, honestly applied):
       let score = 10; // real business name from a public source
-      if (c.address) score += 20;
+      if (e.address) score += 20;
       if (phone) score += 20;
       if (c.website && websiteAlive) score += 15;
       if (email) score += 15;
       if (email && c.website && email.endsWith(`@${domainOf(c.website)}`)) score += 5;
+      if (e.structured) score += 5; // contact came from the business's own structured data
+      if (mxOk) score += 5; // email domain verified to accept mail (MX records)
       if (c.hours) score += 5;
       if (c.phone || c.email) score += 10; // source-provided contact
       score = Math.min(100, score);
@@ -197,14 +287,14 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       leads.push({
         company: c.name,
         industry: niche,
-        location: c.address || location,
+        location: e.address || location,
         size: "",
         website: c.website ? domainOf(c.website) : "",
-        description: `Real business found on OpenStreetMap${c.website ? " with a live website" : ""}. Contacts are published by the business itself — verify before outreach.`,
+        description: `Real business found on OpenStreetMap${c.website ? " with a live website" : ""}. Contacts are published by the business itself${mxOk ? "; email domain verified (accepts mail)" : ""} — verify before outreach.`,
         score,
         email,
         phone,
-        address: c.address,
+        address: e.address,
         sourceUrl: `https://www.openstreetmap.org/${c.el.type}/${c.el.id}`,
         sourceName: "OpenStreetMap",
       });

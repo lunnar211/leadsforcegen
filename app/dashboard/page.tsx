@@ -65,11 +65,16 @@ export default function Dashboard() {
     setLoading(true);
     setSearchError("");
     setSearched(false);
+    // The server budget is 60s; give the request a little slack beyond it
+    // so real server errors surface instead of a client-side cutoff.
+    const ctrl = new AbortController();
+    const killer = setTimeout(() => ctrl.abort(), 80_000);
     try {
       const res = await fetch("/api/ai/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify(form),
+        signal: ctrl.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -95,10 +100,17 @@ export default function Dashboard() {
           }
         } catch {}
       }
-    } catch {
-      setSearchError("Network error. Check your connection and try again.");
-      showToast("error", "Network error. Check your connection and try again.");
-    } finally { setLoading(false); }
+    } catch (err) {
+      // Name the failure honestly: a timeout is not the user's connection,
+      // and an offline device is not the server's fault.
+      const msg = err instanceof DOMException && err.name === "AbortError"
+        ? "The search took too long — the public data sources are slow right now. Try again, or use a more specific city or industry."
+        : typeof navigator !== "undefined" && !navigator.onLine
+          ? "You appear to be offline. Check your connection and try again."
+          : "Couldn't reach the search service just now. Please try again in a moment.";
+      setSearchError(msg);
+      showToast("error", msg);
+    } finally { clearTimeout(killer); setLoading(false); }
   }
 
   function search(e: React.FormEvent) {
@@ -106,12 +118,68 @@ export default function Dashboard() {
     void runSearch();
   }
 
+  const EXPORT_COLS = ["company", "industry", "location", "size", "website", "email", "phone", "address", "score", "source_url", "description"] as const;
+  const exportRows = () => leads.map(l => ({
+    company: l.company, industry: l.industry, location: l.location, size: l.size, website: l.website,
+    email: l.email || "", phone: l.phone || "", address: l.address || "", score: l.score,
+    source_url: l.sourceUrl || "", description: l.description,
+  }));
+
+  function download(blob: Blob, filename: string) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  function gateExport(format: string): boolean {
+    if (isPro) return true;
+    showToast("error", `${format} export is a Pro feature. Upgrade to Pro to export.`);
+    return false;
+  }
+
   function exportCsv() {
-    if (!isPro) { showToast("error", "CSV export is a Pro feature. Upgrade to Pro to export."); return; }
-    const rows = [["company", "industry", "location", "size", "website", "email", "phone", "address", "score", "source_url", "description"], ...leads.map(l => [l.company, l.industry, l.location, l.size, l.website, l.email || "", l.phone || "", l.address || "", String(l.score), l.sourceUrl || "", l.description])];
-    const csv = rows.map(r => r.map(c => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "leadsforcegen-leads.csv"; a.click();
+    if (!gateExport("CSV")) return;
+    const rows = exportRows();
+    const csv = [[...EXPORT_COLS].join(","), ...rows.map(r => EXPORT_COLS.map(c => `"${String(r[c]).replaceAll('"', '""')}"`).join(","))].join("\n");
+    download(new Blob([csv], { type: "text/csv" }), "leadsforcegen-leads.csv");
     showToast("success", "CSV downloaded.");
+  }
+
+  function exportJson() {
+    if (!gateExport("JSON")) return;
+    download(new Blob([JSON.stringify(exportRows(), null, 2)], { type: "application/json" }), "leadsforcegen-leads.json");
+    showToast("success", "JSON downloaded.");
+  }
+
+  async function exportXlsx() {
+    if (!gateExport("Excel")) return;
+    try {
+      const XLSX = await import("xlsx");
+      const ws = XLSX.utils.json_to_sheet(exportRows(), { header: [...EXPORT_COLS] });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Leads");
+      XLSX.writeFile(wb, "leadsforcegen-leads.xlsx");
+      showToast("success", "Excel file downloaded.");
+    } catch { showToast("error", "Excel export failed to load. Try CSV instead."); }
+  }
+
+  async function exportPdf() {
+    if (!gateExport("PDF")) return;
+    try {
+      const { jsPDF } = await import("jspdf");
+      const autoTable = (await import("jspdf-autotable")).default;
+      const doc = new jsPDF({ orientation: "landscape" });
+      doc.setFontSize(14);
+      doc.text("LeadsForceGen — Leads export", 14, 14);
+      autoTable(doc, {
+        startY: 20,
+        head: [["Company", "Industry", "Location", "Website", "Email", "Phone", "Score"]],
+        body: exportRows().map(r => [r.company, r.industry, r.location, r.website, r.email, r.phone, String(r.score)]),
+        styles: { fontSize: 8 },
+      });
+      doc.save("leadsforcegen-leads.pdf");
+      showToast("success", "PDF downloaded.");
+    } catch { showToast("error", "PDF export failed to load. Try CSV instead."); }
   }
 
   async function genOutreach(lead: Lead) {
@@ -242,9 +310,12 @@ export default function Dashboard() {
               <>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold text-fg">{leads.length} leads</h2>
-                  <button onClick={exportCsv} className="btn-ghost !min-h-[44px] text-sm">
-                    {isPro ? "📥 Export CSV" : "🔒 Export CSV (Pro)"}
-                  </button>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label="Export leads">
+                    <button onClick={exportCsv} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "📥 CSV" : "🔒 CSV (Pro)"}</button>
+                    <button onClick={() => void exportXlsx()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "📊 Excel" : "🔒 Excel (Pro)"}</button>
+                    <button onClick={() => void exportPdf()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "🧾 PDF" : "🔒 PDF (Pro)"}</button>
+                    <button onClick={exportJson} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "{} JSON" : "🔒 JSON (Pro)"}</button>
+                  </div>
                 </div>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   {leads.map((l, i) => (
