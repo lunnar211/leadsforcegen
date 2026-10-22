@@ -85,3 +85,16 @@ git push -u origin main
 | `POST /api/payments/create-order` | Server-side order/session creation |
 | `POST /api/payments/verify` | Server-side Razorpay verification |
 | `POST /api/payments/webhook` | Razorpay + Stripe webhooks with dedupe |
+
+## Google login (Supabase Auth)
+
+The login and signup pages include a "Continue with Google" button that uses
+Supabase Auth OAuth (PKCE) and returns to `/auth/callback`. To enable it:
+
+1. In Google Cloud Console, create an OAuth 2.0 Client ID (Web application).
+2. Add Supabase's callback URL as an authorized redirect URI:
+   `https://<your-project-ref>.supabase.co/auth/v1/callback`
+3. In the Supabase dashboard: Authentication > Providers > Google — enable it
+   and paste the Google Client ID and Client Secret.
+4. In Supabase: Authentication > URL Configuration — add your site URL and
+   `https://<your-site>/auth/callback` to the redirect allow list.

@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import GoogleAuthButton from "@/components/GoogleAuthButton";
 
 export default function Signup() {
   const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
@@ -24,6 +25,7 @@ export default function Signup() {
         {msg && <p className="text-sm text-slate-300">{msg}</p>}
         <button className="w-full bg-indigo-600 hover:bg-indigo-500 rounded-xl py-3 font-semibold">Sign up free</button>
       </form>
+      <GoogleAuthButton />
       <p className="text-sm text-slate-400 mt-4 text-center">Already have an account? <Link className="text-indigo-300" href="/login">Login</Link></p>
     </div>
   );
