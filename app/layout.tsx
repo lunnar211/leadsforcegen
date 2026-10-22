@@ -46,7 +46,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Nav />
         <main className="flex-1">{children}</main>
         <footer className="border-t border-white/10 py-6 text-center text-xs text-slate-500">
-          LeadsForceGen — AI-generated prospects must be verified before outreach.
+          <p>LeadsForceGen — AI-generated prospects must be verified before outreach.</p>
+          <nav className="mt-2 flex justify-center gap-4" aria-label="Legal">
+            <a className="underline hover:text-slate-300" href="/privacy">Privacy</a>
+            <a className="underline hover:text-slate-300" href="/terms">Terms</a>
+            <a className="underline hover:text-slate-300" href="/unsubscribe">Unsubscribe / remove a business</a>
+          </nav>
         </footer>
       </body>
     </html>

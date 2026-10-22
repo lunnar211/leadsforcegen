@@ -35,6 +35,7 @@ export default function AdminLogin({ configured }: { configured: boolean }) {
       )}
       <form onSubmit={submit} className="mt-6 space-y-3">
         <input
+          aria-label="Admin email"
           className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3"
           placeholder="Admin email"
           type="email"
@@ -44,6 +45,7 @@ export default function AdminLogin({ configured }: { configured: boolean }) {
           required
         />
         <input
+          aria-label="Admin password"
           className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3"
           placeholder="Admin password"
           type="password"

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sampleLeads, type Lead } from "@/lib/types";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 
 async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
@@ -46,6 +47,9 @@ async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
 }
 
 export async function POST(req: Request) {
+  if (!rateLimit(`ai-leads:${clientIp(req)}`, 20, 60_000)) {
+    return NextResponse.json({ ok: false, error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
+  }
   const body = await req.json().catch(() => ({}));
   const ai = await groqLeads(body);
   if (ai) {

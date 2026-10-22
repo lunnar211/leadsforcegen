@@ -81,6 +81,16 @@ create index if not exists idx_profiles_plan on profiles(plan);
 -- RLS stubs: enable RLS and let users read/write only their own rows.
 -- Admin access should be gated by profiles.role = 'admin' (add admin
 -- policies with a security-definer helper before exposing admin writes).
+create table if not exists unsubscribe_blocklist (
+  id uuid primary key default gen_random_uuid(),
+  domain text,
+  email text,
+  company text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_unsubscribe_domain on unsubscribe_blocklist (domain);
+create index if not exists idx_unsubscribe_email on unsubscribe_blocklist (email);
+
 alter table profiles enable row level security;
 alter table leads enable row level security;
 alter table searches enable row level security;
@@ -88,6 +98,7 @@ alter table activity_log enable row level security;
 alter table subscriptions enable row level security;
 alter table payments enable row level security;
 alter table webhook_events enable row level security;
+alter table unsubscribe_blocklist enable row level security;
 
 -- Example per-user policies (uncomment / adapt in the SQL editor):
 -- create policy "own profile" on profiles for select using (auth.uid() = id);
