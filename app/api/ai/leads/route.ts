@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { sampleLeads, type Lead } from "@/lib/types";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { consumeQuota, getAuthUser, getUsage, quotaConfigured } from "@/lib/quota";
-import { searchEverywhere } from "@/lib/engine/search";
+import { normalizeNiche, searchEverywhere, type EngineResult } from "@/lib/engine/search";
+import { cacheGet, cacheSet } from "@/lib/cache";
 
 export const maxDuration = 60;
 
@@ -10,7 +11,7 @@ export const maxDuration = 60;
 async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
   const text = await groqGenerate(
     `You generate company-level B2B prospect ideas as JSON. Never invent personal phone numbers or personal email addresses of real people. Only return company/business names, industry, location, approximate size, a plausible public website domain placeholder if unknown, a short description, and a fit score 0-100. ${LEAD_SCHEMA_HINT}\nGenerate 10 company prospects. Lead type: ${body.leadType || "B2B companies"}. Industry: ${body.industry || "Any"}. Location: ${body.location || "Any"}. Company size: ${body.size || "Any"}. Keywords: ${body.keywords || "none"}.`,
-    15000,
+    12000,
   );
   if (!text) return null;
   try {
@@ -68,7 +69,7 @@ async function geminiGenerate(prompt: string, timeoutMs: number): Promise<string
 async function geminiLeads(body: Record<string, string>): Promise<Lead[] | null> {
   const text = await geminiGenerate(
     `You generate company-level B2B prospect ideas as JSON. Never invent personal phone numbers or personal email addresses of real people. Only return company/business names, industry, location, approximate size, a plausible public website domain placeholder if unknown, a short description, and a fit score 0-100. ${LEAD_SCHEMA_HINT}\nGenerate 10 company prospects. Lead type: ${body.leadType || "B2B companies"}. Industry: ${body.industry || "Any"}. Location: ${body.location || "Any"}. Company size: ${body.size || "Any"}. Keywords: ${body.keywords || "none"}.`,
-    15000,
+    12000,
   );
   if (!text) return null;
   try {
@@ -116,7 +117,7 @@ async function aiFilter(leads: Lead[], niche: string, location: string): Promise
     { name: "groq", run: groqGenerate },
   ];
   for (const p of providers) {
-    const text = await p.run(prompt, 12000);
+    const text = await p.run(prompt, 10000);
     if (!text) continue;
     try {
       const parsed = JSON.parse(text);
@@ -180,9 +181,19 @@ async function handlePost(req: Request) {
   const niche = String(body.industry || body.leadType || "");
   const where = String(body.location || "");
   const want = quotaUser ? quotaUser.remaining : 10;
-  const engine = await searchEverywhere(niche, where, Math.min(want, 30));
+  // Whole-search cache (6h): the same niche+city search is the most
+  // common repeat request — a hit answers in well under a second instead
+  // of re-running the map query and website crawl. Quota still applies.
+  const limitWanted = Math.min(want, 30);
+  const searchKey = `search:v3:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
+  let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
+  const fromCache = Boolean(engine);
+  if (!engine) {
+    engine = await searchEverywhere(niche, where, limitWanted);
+    if (engine.leads.length > 0) void cacheSet(searchKey, engine);
+  }
   if (engine.leads.length > 0) {
-    const note = `Found ${engine.leads.length} real businesses from public sources (OpenStreetMap + their own websites, ${engine.pagesRead} pages read). Contacts are published by the businesses — verify before outreach.`;
+    const note = `Found ${engine.leads.length} real businesses from public sources (OpenStreetMap + their own websites${fromCache ? "; served from the results cache, refreshed every few hours" : `, ${engine.pagesRead} pages read`}). Contacts are published by the businesses — verify before outreach.`;
     if (quotaUser) {
       const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
       if (!consumed) {

@@ -214,3 +214,11 @@ drop policy if exists "daily_usage_select_own_or_admin" on daily_usage;
 create policy "daily_usage_select_own_or_admin" on daily_usage
   for select using (auth.uid() = user_id or is_admin());
 -- daily_usage writes happen only inside consume_daily_quota() (definer).
+
+-- Lead engine cache (server-internal; service-role only, no client policies).
+create table if not exists public.search_cache (
+  cache_key text primary key,
+  payload jsonb not null,
+  created_at timestamptz not null default now()
+);
+alter table public.search_cache enable row level security;

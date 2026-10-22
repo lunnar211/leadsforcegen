@@ -1,6 +1,7 @@
 import "server-only";
 import { resolveMx } from "node:dns/promises";
 import { safeFetch } from "@/lib/safe-fetch";
+import { cacheGet, cacheSet } from "@/lib/cache";
 import type { Lead } from "@/lib/types";
 
 // Search Everywhere — phase 2 (public sources only, per policy):
@@ -103,17 +104,55 @@ function nicheTerms(niche: string): string[] {
 }
 
 async function geocode(location: string): Promise<{ lat: number; lon: number } | null> {
+  const cacheKey = `geo:${location.toLowerCase().trim()}`;
+  const cached = await cacheGet<{ lat: number; lon: number }>(cacheKey, 30 * 24 * 3600_000);
+  if (cached) return cached;
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(location)}`;
   const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
   if (!res.ok) return null;
   const data = (await res.json()) as { lat: string; lon: string }[];
   if (!data.length) return null;
-  return { lat: Number(data[0].lat), lon: Number(data[0].lon) };
+  const point = { lat: Number(data[0].lat), lon: Number(data[0].lon) };
+  void cacheSet(cacheKey, point);
+  return point;
 }
 
-async function overpass(lat: number, lon: number, terms: string[]): Promise<OsmElement[]> {
+function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(bLat - aLat);
+  const dLon = rad(bLon - aLon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+// Canonical OpenStreetMap tag pairs per niche. A tag-precise query
+// (amenity=dentist) is both FASTER for Overpass and far more accurate
+// than name matching: it returns businesses that ARE dentists even when
+// their name does not contain the word, and skips name-alikes that are
+// not. Name-regex stays as a second clause for unmapped businesses.
+const NICHE_TAGS: Record<string, [string, string][]> = {
+  dentist: [["amenity", "dentist"]],
+  restaurant: [["amenity", "restaurant"], ["amenity", "fast_food"]],
+  cafe: [["amenity", "cafe"]],
+  hotel: [["tourism", "hotel"], ["tourism", "guest_house"], ["tourism", "hostel"], ["tourism", "apartment"]],
+  pharmacy: [["amenity", "pharmacy"], ["healthcare", "pharmacy"]],
+  clinic: [["amenity", "clinic"], ["amenity", "doctors"], ["healthcare", "clinic"], ["healthcare", "doctor"], ["healthcare", "dentist"]],
+  gym: [["leisure", "fitness_centre"], ["leisure", "sports_centre"]],
+  salon: [["shop", "hairdresser"], ["shop", "beauty"]],
+  plumber: [["craft", "plumber"]],
+  electrician: [["craft", "electrician"]],
+  lawyer: [["office", "lawyer"]],
+};
+
+async function overpass(lat: number, lon: number, niche: string, terms: string[]): Promise<OsmElement[]> {
   const regex = terms.join("|").replace(/[^a-z0-9| ]/g, "");
-  const ql = `[out:json][timeout:15];(nwr["name"~"${regex}",i](around:25000,${lat},${lon});nwr[~"^(amenity|shop|office|tourism|leisure|healthcare|craft)$"~"${regex}",i](around:25000,${lat},${lon}););out center 200;`;
+  const clauses: string[] = [];
+  for (const [k, v] of NICHE_TAGS[niche] || []) {
+    clauses.push(`nwr["${k}"="${v}"](around:20000,${lat},${lon});`);
+  }
+  clauses.push(`nwr["name"~"${regex}",i](around:20000,${lat},${lon});`);
+  clauses.push(`nwr[~"^(amenity|shop|office|tourism|leisure|healthcare|craft)$"~"${regex}",i](around:20000,${lat},${lon});`);
+  const ql = `[out:json][timeout:15];(${clauses.join("")});out center 150;`;
   const mirrors = process.env.OVERPASS_URL
     ? process.env.OVERPASS_URL.split(",").map((s) => s.trim()).filter(Boolean)
     : OVERPASS_MIRRORS;
@@ -237,10 +276,11 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     niche = normalizeNiche(niche);
     const geo = await geocode(location);
     if (!geo) return empty;
-    const elements = await overpass(geo.lat, geo.lon, nicheTerms(niche));
+    const elements = await overpass(geo.lat, geo.lon, niche, nicheTerms(niche));
     const terms = nicheTerms(niche);
+    const precisePairs = new Set((NICHE_TAGS[niche] || []).map(([k, v]) => `${k}=${v}`));
 
-    type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string };
+    type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string; precise: boolean; distKm: number };
     const candidates: Candidate[] = [];
     const seenDomains = new Set<string>();
     for (const el of elements) {
@@ -251,7 +291,10 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      const matches = terms.some(
+      // Precise = the business carries the niche's canonical OSM tag
+      // (amenity=dentist), independent of what its name happens to say.
+      const precise = Object.entries(t).some(([k, v]) => precisePairs.has(`${k}=${v}`));
+      const matches = precise || terms.some(
         (term) => tagValues.includes(term) || name.toLowerCase().includes(term),
       );
       if (!matches) continue;
@@ -262,6 +305,9 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       const address = [t["addr:street"], t["addr:city"], t["addr:country"]]
         .filter(Boolean)
         .join(", ");
+      const elLat = el.lat ?? el.center?.lat;
+      const elLon = el.lon ?? el.center?.lon;
+      const distKm = elLat !== undefined && elLon !== undefined ? haversineKm(geo.lat, geo.lon, elLat, elLon) : 999;
       candidates.push({
         el,
         name,
@@ -270,9 +316,16 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         email: t["contact:email"] || t.email,
         address: address || undefined,
         hours: t.opening_hours,
+        precise,
+        distKm,
       });
-      if (candidates.length >= Math.max(limit * 2, 20)) break;
+      if (candidates.length >= Math.max(limit * 3, 30)) break;
     }
+
+    // Rank before spending crawl budget: tag-precise businesses first,
+    // then nearest to the searched center. Enrichment and final ordering
+    // both benefit — the best leads get their websites read first.
+    candidates.sort((a, b) => Number(b.precise) - Number(a.precise) || a.distKm - b.distKm);
 
     // Enrichment runs with limited concurrency under a hard deadline tied
     // to the ENGINE start (geocode + Overpass already spent some of it):
@@ -289,6 +342,20 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       const e = enriched[idx];
       if (!c.website || pagesRead >= 24 || Date.now() > deadline) return;
       const domain = domainOf(c.website);
+      // Website extractions are cached for a week — the same business
+      // shows up across many searches and its published contacts rarely
+      // change. A cache hit costs ~0ms instead of up to 3 page fetches.
+      if (domain) {
+        const hit = await cacheGet<{ email?: string; phone?: string; address?: string; structured: boolean; alive: boolean }>(`site:${domain}`, 7 * 24 * 3600_000);
+        if (hit) {
+          e.email = e.email || hit.email;
+          e.phone = e.phone || hit.phone;
+          e.address = e.address || hit.address;
+          e.structured = e.structured || hit.structured;
+          e.websiteAlive = hit.alive;
+          return;
+        }
+      }
       const base = (c.website.startsWith("http") ? c.website : `https://${c.website}`).replace(/\/$/, "");
       for (const path of [base, `${base}/contact`, `${base}/contact-us`]) {
         if ((e.email && e.phone) || pagesRead >= 24 || Date.now() > deadline) break;
@@ -305,6 +372,12 @@ export async function searchEverywhere(niche: string, location: string, limit: n
             e.address = e.address || ld.address;
           }
         } catch { /* robots/blocked/dead — skip quietly */ }
+      }
+      if (domain) {
+        void cacheSet(`site:${domain}`, {
+          email: e.email, phone: e.phone, address: e.address,
+          structured: e.structured, alive: e.websiteAlive,
+        });
       }
     };
     for (let i = 0; i < candidates.length; i += 4) {
@@ -330,6 +403,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (email && c.website && email.endsWith(`@${domainOf(c.website)}`)) score += 5;
       if (e.structured) score += 5; // contact came from the business's own structured data
       if (mxOk) score += 5; // email domain verified to accept mail (MX records)
+      if (c.precise) score += 10; // canonical OSM tag match (amenity=dentist etc.)
+      if (c.distKm <= 1) score += 8; else if (c.distKm <= 5) score += 5; else if (c.distKm <= 15) score += 2;
       if (c.hours) score += 5;
       if (c.phone || c.email) score += 10; // source-provided contact
       score = Math.min(100, score);
@@ -340,7 +415,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         location: e.address || location,
         size: "",
         website: c.website ? domainOf(c.website) : "",
-        description: `Real business found on OpenStreetMap${c.website ? " with a live website" : ""}. Contacts are published by the business itself${mxOk ? "; email domain verified (accepts mail)" : ""} — verify before outreach.`,
+        description: `Real business found on OpenStreetMap${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}. Contacts are published by the business itself${mxOk ? "; email domain verified (accepts mail)" : ""} — verify before outreach.`,
         score,
         email,
         phone,
