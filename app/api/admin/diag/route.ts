@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { ADMIN_COOKIE, verifyAdminSessionToken } from "@/lib/adminAuth";
 import { serviceClient } from "@/lib/quota";
+import { OVERPASS_MIRRORS } from "@/lib/engine/search";
 
 // Owner-only pipeline diagnostics: runs every stage of the lead pipeline
 // LIVE from this server and reports status + timing per stage — no
@@ -41,18 +42,32 @@ export async function GET() {
   }));
 
   const ql = `[out:json][timeout:15];(nwr["amenity"="dentist"](around:20000,25.2048,55.2708););out center 5;`;
-  for (const mirror of ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"]) {
-    stages.push(await timed(`overpass (${new URL(mirror).hostname})`, async () => {
+  // All mirrors in parallel (sequential timeouts could exceed the 60s
+  // budget), and a non-200 answer counts as a FAILED stage — an HTTP 406
+  // with 0 elements must not read as "ok".
+  const overpassStages = await Promise.all(OVERPASS_MIRRORS.map((mirror) =>
+    timed(`overpass (${new URL(mirror).hostname})`, async () => {
       const res = await fetch(mirror, {
         method: "POST",
         headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
         body: new URLSearchParams({ data: ql }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(12000),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json().catch(() => null)) as { elements?: unknown[] } | null;
-      return `HTTP ${res.status}, ${data?.elements ? data.elements.length : 0} element(s)`;
-    }));
-  }
+      return `HTTP 200, ${data?.elements ? data.elements.length : 0} element(s)`;
+    }),
+  ));
+  stages.push(...overpassStages);
+
+  stages.push(await timed("osm api fallback (map.json)", async () => {
+    const res = await fetch("https://api.openstreetmap.org/api/0.6/map.json?bbox=55.2408,25.1748,55.3008,25.2348", {
+      headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json().catch(() => null)) as { elements?: unknown[] } | null;
+    return `HTTP 200, ${data?.elements ? data.elements.length : 0} element(s)`;
+  }));
 
   stages.push(await timed("groq key", async () => {
     if (!process.env.GROQ_API_KEY) return "not set";
@@ -68,6 +83,38 @@ export async function GET() {
       headers: { "x-goog-api-key": process.env.GEMINI_API_KEY }, signal: AbortSignal.timeout(8000),
     });
     return `HTTP ${res.status}${res.status === 200 ? " (key valid)" : res.status === 400 || res.status === 403 ? " (key REJECTED — revoked or wrong)" : ""}`;
+  }));
+
+  // Key validity (GET) does not prove generation works — a key can be
+  // valid but rate-limited or out of quota. These tiny generations test
+  // the exact calls the leads route depends on.
+  stages.push(await timed("groq generate (tiny)", async () => {
+    if (!process.env.GROQ_API_KEY) return "not set";
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: process.env.AI_MODEL || "llama-3.3-70b-versatile",
+        max_tokens: 5,
+        messages: [{ role: "user", content: "Say ok" }],
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}${res.status === 429 ? " (rate limited / quota)" : ""}`);
+    return "HTTP 200 (generation works)";
+  }));
+
+  stages.push(await timed("gemini generate (tiny)", async () => {
+    if (!process.env.GEMINI_API_KEY) return "not set";
+    const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: "Say ok" }] }] }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}${res.status === 429 ? " (rate limited / quota)" : ""}`);
+    return "HTTP 200 (generation works)";
   }));
 
   stages.push(await timed("supabase search_cache", async () => {
