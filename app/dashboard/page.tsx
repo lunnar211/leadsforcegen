@@ -351,9 +351,9 @@ export default function Dashboard() {
 
         {/* Right column: results, outreach, history */}
         <div className="min-w-0">
-          {note && !searchError && (source === "sample" ? (
+          {note && !searchError && (source === "sample" || source === "none" ? (
             <p className="rounded-[var(--radius)] border border-warning bg-warning-bg p-3 text-sm text-warning">
-              ⚠️ {note} (source: sample) — Verify every lead before outreach.
+              ⚠️ {note}
             </p>
           ) : (
             <p className="rounded-[var(--radius)] border border-success bg-success-bg p-3 text-sm text-success">

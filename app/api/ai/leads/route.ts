@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sampleLeads, type Lead } from "@/lib/types";
+import { type Lead } from "@/lib/types";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { consumeQuota, getAuthUser, getUsage, quotaConfigured } from "@/lib/quota";
 import { normalizeNiche, searchEverywhere, type EngineResult } from "@/lib/engine/search";
@@ -176,8 +176,10 @@ async function handlePost(req: Request) {
 
   // Source order: (1) Search Everywhere engine — real businesses from
   // public sources with published contacts; (2) Groq AI prospects;
-  // (3) Gemini AI prospects; (4) clearly labeled samples. AI prospects are
-  // relevance-filtered by the other AI. Any failure falls through silently.
+  // (3) Gemini AI prospects. AI prospects are relevance-filtered by the
+  // other AI. If no real source produces leads the answer is an honest
+  // empty result — never demo/sample data dressed up as results (that
+  // fallback was removed 2026-10-23, once the stored database went live).
   const niche = String(body.industry || body.leadType || "");
   const where = String(body.location || "");
   const want = quotaUser ? quotaUser.remaining : 10;
@@ -225,9 +227,18 @@ async function handlePost(req: Request) {
     source = filtered.by ? `${aiSource}+${filtered.by}-filter` : aiSource;
     note = `AI-generated company prospects (${aiSource}${filtered.by ? `, relevance-filtered by ${filtered.by}` : ""}). Verify every lead before outreach — do not treat AI output as verified contact data.`;
   } else {
-    leads = sampleLeads(body);
-    source = "sample";
-    note = "Sample data (AI providers unavailable). Clearly labeled demo leads — verify before outreach.";
+    leads = [];
+    source = "none";
+    note = `No real businesses found for "${niche}" in "${where}" yet. The stored lead database currently covers the UAE and Nepal in full (224,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
+  }
+
+  if (leads.length === 0) {
+    // Honest empty result: no quota consumed, no demo data.
+    if (quotaUser) {
+      const usage = await getUsage(quotaUser.id);
+      return NextResponse.json({ ok: true, leads: [], source, note, usage });
+    }
+    return NextResponse.json({ leads: [], source, note });
   }
 
   if (quotaUser) {
