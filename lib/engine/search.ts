@@ -188,44 +188,58 @@ async function overpass(lat: number, lon: number, niche: string, terms: string[]
 
 // Last-resort POI source: the official OpenStreetMap API's map call.
 // Different infrastructure from Overpass (which currently rejects or
-// times out for datacenter IPs), small bbox around the geocoded center.
-// Used ONLY when every Overpass mirror fails; searches are cached, so
-// this stays occasional. Ways get a center computed from their member
-// nodes in the same payload. OSM_API_URL override exists for testing.
+// times out for datacenter IPs). A 2x2 tile grid of map calls covers
+// roughly 12km x 12km around the geocoded center (each tile far below
+// the API's max bbox area), fetched in parallel and deduped. Used ONLY
+// when every Overpass mirror fails; searches are cached, so this stays
+// occasional. Ways get a center computed from their member nodes in the
+// same payload. OSM_API_URL override exists for testing.
 async function osmApiFallback(lat: number, lon: number): Promise<OsmElement[]> {
-  try {
-    const d = 0.03; // ~3.3 km half-box around the center
-    const base = process.env.OSM_API_URL || "https://api.openstreetmap.org/api/0.6";
-    const url = `${base}/map.json?bbox=${lon - d},${lat - d},${lon + d},${lat + d}`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": UA, Accept: "application/json" },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as { elements?: (OsmElement & { nodes?: number[] })[] };
-    const els = data.elements || [];
-    const coords = new Map<number, { lat: number; lon: number }>();
-    for (const el of els) {
-      if (el.type === "node" && el.lat !== undefined && el.lon !== undefined) coords.set(el.id, { lat: el.lat, lon: el.lon });
+  const base = process.env.OSM_API_URL || "https://api.openstreetmap.org/api/0.6";
+  const d = 0.055; // tile half-box (~6 km); grid covers +/-0.11 deg (~12 km)
+  const tile = async (cLat: number, cLon: number): Promise<(OsmElement & { nodes?: number[] })[]> => {
+    try {
+      const url = `${base}/map.json?bbox=${cLon - d},${cLat - d},${cLon + d},${cLat + d}`;
+      const res = await fetch(url, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as { elements?: (OsmElement & { nodes?: number[] })[] };
+      return data.elements || [];
+    } catch {
+      return [];
     }
-    const out: OsmElement[] = [];
-    for (const el of els) {
-      if (!el.tags?.name) continue;
-      if (el.type === "way" && !el.center && el.nodes?.length) {
-        const pts = el.nodes.map((id) => coords.get(id)).filter((p): p is { lat: number; lon: number } => Boolean(p));
-        if (pts.length) {
-          el.center = {
-            lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
-            lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length,
-          };
-        }
-      }
-      out.push(el);
-    }
-    return out;
-  } catch {
-    return [];
+  };
+  const settled = await Promise.allSettled([
+    tile(lat - d, lon - d), tile(lat - d, lon + d),
+    tile(lat + d, lon - d), tile(lat + d, lon + d),
+  ]);
+  const byKey = new Map<string, OsmElement & { nodes?: number[] }>();
+  for (const s of settled) {
+    if (s.status !== "fulfilled") continue;
+    for (const el of s.value) byKey.set(`${el.type}/${el.id}`, el);
   }
+  const els = [...byKey.values()];
+  const coords = new Map<number, { lat: number; lon: number }>();
+  for (const el of els) {
+    if (el.type === "node" && el.lat !== undefined && el.lon !== undefined) coords.set(el.id, { lat: el.lat, lon: el.lon });
+  }
+  const out: OsmElement[] = [];
+  for (const el of els) {
+    if (!el.tags?.name) continue;
+    if (el.type === "way" && !el.center && el.nodes?.length) {
+      const pts = el.nodes.map((id) => coords.get(id)).filter((p): p is { lat: number; lon: number } => Boolean(p));
+      if (pts.length) {
+        el.center = {
+          lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
+          lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length,
+        };
+      }
+    }
+    out.push(el);
+  }
+  return out;
 }
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
@@ -465,7 +479,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         }
       }
       const base = (c.website.startsWith("http") ? c.website : `https://${c.website}`).replace(/\/$/, "");
-      for (const path of [base, `${base}/contact`, `${base}/contact-us`]) {
+      for (const path of [base, `${base}/contact`, `${base}/contact-us`, `${base}/about`]) {
         if ((e.email && e.phone) || pagesRead >= 24 || Date.now() > deadline) break;
         try {
           const page = await safeFetch(path);

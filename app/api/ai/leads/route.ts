@@ -193,7 +193,9 @@ async function handlePost(req: Request) {
     if (engine.leads.length > 0) void cacheSet(searchKey, engine);
   }
   if (engine.leads.length > 0) {
-    const note = `Found ${engine.leads.length} real businesses from public sources (OpenStreetMap + their own websites${fromCache ? "; served from the results cache, refreshed every few hours" : `, ${engine.pagesRead} pages read`}). Contacts are published by the businesses — verify before outreach.`;
+    const withEmail = engine.leads.filter((l) => l.email).length;
+    const withPhone = engine.leads.filter((l) => l.phone).length;
+    const note = `Found ${engine.leads.length} real businesses from public sources (OpenStreetMap + their own websites${fromCache ? "; served from the results cache, refreshed every few hours" : `, ${engine.pagesRead} pages read`}). Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and map source. Verify before outreach.`;
     if (quotaUser) {
       const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
       if (!consumed) {
