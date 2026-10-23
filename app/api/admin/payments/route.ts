@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { ADMIN_COOKIE, verifyAdminSessionToken } from "@/lib/adminAuth";
+import { reviewManualPayment } from "@/lib/manualPayments";
 
 // Admin-only review queue for manual payments. Guarded by the same signed
 // admin session cookie as /admin. Approve = money seen in the owner's
@@ -56,55 +57,9 @@ export async function POST(req: Request) {
   if (!body.id || (body.action !== "approve" && body.action !== "reject" && body.action !== "refund")) {
     return NextResponse.json({ ok: false, error: "Provide id and action (approve|reject|refund)." }, { status: 400 });
   }
-  const { data: payment, error: readErr } = await admin
-    .from("payments")
-    .select("id, user_id, email, months, status, amount, currency, method")
-    .eq("id", body.id)
-    .eq("gateway", "manual")
-    .single();
-  if (readErr || !payment) return NextResponse.json({ ok: false, error: "Payment not found." }, { status: 404 });
-
-  if (body.action === "refund") {
-    // Bookkeeping for money the owner returns out-of-band (eSewa/bank —
-    // manual payments have no gateway API to refund through). This only
-    // records the refund; the owner sends the money back himself.
-    if (payment.status !== "captured") {
-      return NextResponse.json({ ok: false, error: `Only a captured payment can be marked refunded (this one is ${payment.status}).` }, { status: 409 });
-    }
-    await admin.from("payments").update({ status: "refunded" }).eq("id", body.id);
-    await admin.from("activity_log").insert({
-      user_id: payment.user_id,
-      message: `Admin marked manual payment refunded — ${payment.currency} ${Number(payment.amount).toLocaleString()} to ${payment.email || payment.user_id || "unknown buyer"} (money returned by owner via ${payment.method || "manual method"})`,
-    });
-    return NextResponse.json({ ok: true, data: { status: "refunded" } });
-  }
-
-  if (payment.status !== "pending") {
-    return NextResponse.json({ ok: false, error: `Already ${payment.status}.` }, { status: 409 });
-  }
-
-  if (body.action === "reject") {
-    await admin.from("payments").update({ status: "rejected" }).eq("id", body.id);
-    return NextResponse.json({ ok: true, data: { status: "rejected" } });
-  }
-
-  // Approve: mark captured and activate Pro for the subscription period.
-  await admin.from("payments").update({ status: "captured" }).eq("id", body.id);
-  const months = Number(payment.months || 1);
-  const periodEnd = new Date(Date.now() + months * 30 * 24 * 3600_000).toISOString();
-  if (payment.user_id) {
-    await admin.from("profiles").update({ plan: "pro" }).eq("id", payment.user_id);
-    await admin.from("subscriptions").insert({
-      user_id: payment.user_id,
-      plan: "pro",
-      status: "active",
-      gateway: "manual",
-      current_period_end: periodEnd,
-    });
-    await admin.from("activity_log").insert({
-      user_id: payment.user_id,
-      message: `Manual payment approved — Pro active for ${months} month(s) until ${periodEnd.slice(0, 10)}`,
-    });
-  }
-  return NextResponse.json({ ok: true, data: { status: "captured", periodEnd } });
+  // Shared with the Telegram admin bot (lib/manualPayments) so both
+  // review paths apply exactly the same effects.
+  const result = await reviewManualPayment(admin, body.id, body.action);
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.httpStatus });
+  return NextResponse.json({ ok: true, data: { status: result.status, periodEnd: result.periodEnd } });
 }

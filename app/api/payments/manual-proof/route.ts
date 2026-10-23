@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { MANUAL_METHODS, MANUAL_PRICES_NPR } from "@/lib/payments/plans";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { sendTelegram } from "@/lib/telegram";
 
 export const maxDuration = 30;
 
@@ -85,6 +86,11 @@ export async function POST(req: Request) {
   if (insErr) {
     return NextResponse.json({ ok: false, error: "Could not record the payment. Please try again." }, { status: 502 });
   }
+  // Ping the owner's Telegram bot so the proof gets reviewed fast
+  // (fails open — a Telegram outage never blocks a buyer).
+  await sendTelegram(
+    `💰 New payment proof — NPR ${MANUAL_PRICES_NPR[months].toLocaleString()} via ${method} (${months} mo) from ${userData.user.email || "a buyer"}.\nReview it: send /payments here, or open the admin panel.`,
+  );
   return NextResponse.json({
     ok: true,
     data: { status: "pending", amount: MANUAL_PRICES_NPR[months], currency: "NPR", months, method },

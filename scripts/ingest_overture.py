@@ -97,10 +97,10 @@ def main() -> None:
             id, name, category, lat, lon, phone,
             CASE WHEN {like_any('website_raw')} THEN NULL ELSE website_raw END AS website,
             email,
-            to_json(CASE
+            coalesce(to_json(CASE
               WHEN {like_any('website_raw')}
                 THEN list_distinct(socials || [website_raw])
-              ELSE socials END) AS socials,
+              ELSE socials END), '[]') AS socials,
             address, locality, country, confidence,
             'overture' AS source
           FROM base
