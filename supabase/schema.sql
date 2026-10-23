@@ -263,3 +263,31 @@ create table if not exists public.site_settings (
 alter table public.site_settings enable row level security;
 
 alter table if exists payments add column if not exists coupon_code text;
+
+-- ── Privilege-escalation guard (2026-10-23, found by the owner's self-hack) ──
+-- A leftover starter-template UPDATE policy on profiles let any signed-in
+-- user PATCH their own row's plan/role (RLS guards rows, not columns).
+-- Defence in depth, durable across schema re-runs:
+--  1. Drop every client UPDATE/ALL policy on profiles (plan/role changes
+--     are service-role only, by design).
+--  2. A trigger freezes plan/role/is_active for any non-service-role
+--     writer, on INSERT and UPDATE alike.
+do $$
+declare p record;
+begin
+  for p in select policyname from pg_policies where schemaname='public' and tablename='profiles' and cmd in ('UPDATE','ALL') loop
+    execute format('drop policy if exists %I on public.profiles', p.policyname);
+  end loop;
+end $$;
+create or replace function public.guard_profile_privileges() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if current_user in ('postgres','supabase_admin') or coalesce(auth.role(), '') = 'service_role' then return new; end if;
+  if tg_op = 'INSERT' then
+    new.plan := 'free'; new.role := 'user'; new.is_active := true;
+  elsif tg_op = 'UPDATE' then
+    new.plan := old.plan; new.role := old.role; new.is_active := old.is_active;
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_profile_privileges on public.profiles;
+create trigger guard_profile_privileges before insert or update on public.profiles for each row execute function public.guard_profile_privileges();
