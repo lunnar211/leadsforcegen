@@ -36,6 +36,15 @@ export default function Dashboard() {
     toastTimer.current = setTimeout(() => setToast(null), 4500);
   }, []);
 
+  const copyText = useCallback(async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("success", `${label} copied`);
+    } catch {
+      showToast("error", "Copy failed — select and copy it manually");
+    }
+  }, [showToast]);
+
   const authHeaders = useCallback(async (): Promise<Record<string, string>> => {
     if (!supabase) return {};
     const { data } = await supabase.auth.getSession();
@@ -342,11 +351,15 @@ export default function Dashboard() {
 
         {/* Right column: results, outreach, history */}
         <div className="min-w-0">
-          {note && !searchError && (
+          {note && !searchError && (source === "sample" ? (
             <p className="rounded-[var(--radius)] border border-warning bg-warning-bg p-3 text-sm text-warning">
-              ⚠️ {note} {source && <span>(source: {source})</span>} — Verify every lead before outreach.
+              ⚠️ {note} (source: sample) — Verify every lead before outreach.
             </p>
-          )}
+          ) : (
+            <p className="rounded-[var(--radius)] border border-success bg-success-bg p-3 text-sm text-success">
+              ✅ {note} — Verify every lead before outreach.
+            </p>
+          ))}
 
           {searchError && (
             <div className="card border-danger p-5" role="alert">
@@ -386,13 +399,25 @@ export default function Dashboard() {
                     <article key={i} className="card p-5">
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="font-semibold text-fg break-words">{l.company}</h3>
-                        <span className="flex-none rounded-full bg-success-bg px-2.5 py-1 text-xs font-bold text-success">Score {l.score}</span>
+                        <span className={`flex-none rounded-full px-2.5 py-1 text-xs font-bold ${l.score >= 70 ? "bg-success-bg text-success" : l.score >= 40 ? "bg-warning-bg text-warning" : "bg-danger-bg text-danger"}`}>Score {l.score}</span>
                       </div>
                       <p className="mt-1 text-sm text-muted break-words">{l.industry} · {l.location}{l.size ? ` · ${l.size} employees` : ""}{l.website ? ` · ${l.website}` : ""}</p>
                       {(l.email || l.phone || l.address || l.hours) && (
                         <p className="mt-2 text-sm text-fg break-words">
-                          {l.email && <>✉️ {l.email}<br /></>}
-                          {l.phone && <>📞 {l.phone}<br /></>}
+                          {l.email && (
+                            <span className="inline-flex flex-wrap items-center gap-x-2">
+                              ✉️ <a href={`mailto:${l.email}`} className="text-accent-text underline">{l.email}</a>
+                              <button type="button" onClick={() => void copyText(l.email!, "Email")} className="text-xs text-muted underline" aria-label={`Copy email ${l.email}`}>copy</button>
+                              <br />
+                            </span>
+                          )}
+                          {l.phone && (
+                            <span className="inline-flex flex-wrap items-center gap-x-2">
+                              📞 <a href={`tel:${l.phone.replace(/[^+\d]/g, "")}`} className="text-accent-text underline">{l.phone}</a>
+                              <button type="button" onClick={() => void copyText(l.phone!, "Phone")} className="text-xs text-muted underline" aria-label={`Copy phone ${l.phone}`}>copy</button>
+                              <br />
+                            </span>
+                          )}
                           {l.address && <>📍 {l.address}<br /></>}
                           {l.hours && <>🕐 {l.hours}</>}
                         </p>

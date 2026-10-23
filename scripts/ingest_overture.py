@@ -107,6 +107,12 @@ def main() -> None:
         ) TO '{out}' (FORMAT CSV, HEADER)
         """
         con.execute(q)
+        # Postgres text/jsonb reject NUL bytes outright, and Overture
+        # rows occasionally carry one inside a name (one in the whole
+        # AE+NP set on 2026-10-23). Strip them from the finished CSV.
+        raw = open(out, "rb").read()
+        if b"\x00" in raw:
+            open(out, "wb").write(raw.replace(b"\x00", b""))
         n = sum(1 for _ in open(out)) - 1
         size_mb = os.path.getsize(out) / 1_000_000
         print(f"{cc}: {n} rows -> {out} ({size_mb:.1f} MB)")
