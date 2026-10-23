@@ -45,6 +45,7 @@ const CITY_CENTERS: Record<string, { lat: number; lon: number; label: string }> 
   chicago: { lat: 41.8781, lon: -87.6298, label: "Chicago" },
   houston: { lat: 29.7604, lon: -95.3698, label: "Houston" },
   miami: { lat: 25.7617, lon: -80.1918, label: "Miami" },
+  seattle: { lat: 47.6062, lon: -122.3321, label: "Seattle" },
 };
 
 function normalizeBotNiche(raw: string): string {
@@ -140,7 +141,7 @@ async function usersText(admin: Admin): Promise<string> {
 }
 
 async function diagText(admin: Admin): Promise<string> {
-  const countries = ["AE", "NP"];
+  const countries = ["AE", "NP", "US"];
   const counts = await Promise.all(
     countries.map(async (cc) => {
       const { count } = await admin.from("places").select("*", { count: "exact", head: true }).eq("country", cc);
