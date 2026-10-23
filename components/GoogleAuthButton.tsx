@@ -5,29 +5,54 @@ import { useState } from "react";
 // Requires the Google provider to be enabled in the Supabase dashboard
 // (Authentication > Providers > Google) with a Google Cloud OAuth
 // Client ID + Secret, and this site's /auth/callback URL allow-listed.
+//
+// The OAuth URL is PREFLIGHTED before navigating: when the provider is
+// disabled, Supabase answers the authorize URL with a raw JSON error
+// page ({"msg":"Unsupported provider: provider is not enabled"}) —
+// which is what the owner screenshotted on 2026-10-23. With
+// skipBrowserRedirect we get the URL first, probe it, and only send
+// the user onward when it actually redirects to Google.
 export default function GoogleAuthButton() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   async function signInWithGoogle() {
-    // Lazy import keeps supabase-js out of the auth pages' first bundle.
     const { supabase } = await import("@/lib/supabaseClient");
     if (!supabase) {
       setMsg("Demo mode: Supabase is not configured in this environment, so Google login is disabled here.");
       return;
     }
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({
+    setMsg("");
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
         queryParams: { access_type: "offline", prompt: "consent" },
+        skipBrowserRedirect: true,
       },
     });
-    if (error) {
-      setMsg(/provider is not enabled/i.test(error.message)
-        ? "Google sign-in is not enabled yet — the site owner needs to turn on the Google provider in Supabase. Email login works now."
-        : error.message);
+    if (error || !data?.url) {
+      setMsg("Google sign-in could not start. Please use email login for now.");
       setBusy(false);
+      return;
+    }
+    try {
+      const probe = await fetch(data.url, { redirect: "manual" });
+      // A live provider answers with a redirect (opaque in CORS mode).
+      if (probe.type === "opaqueredirect" || (probe.status >= 300 && probe.status < 400)) {
+        window.location.href = data.url;
+        return;
+      }
+      const text = await probe.text().catch(() => "");
+      if (/provider is not enabled|Unsupported provider/i.test(text) || probe.status >= 400) {
+        setMsg("Google sign-in is being connected — it isn't switched on yet. Email login works now.");
+        setBusy(false);
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      // If the probe itself is blocked, fall back to the plain redirect.
+      window.location.href = data.url;
     }
   }
   return (

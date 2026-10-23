@@ -97,6 +97,9 @@ export default function Login() {
             aria-invalid={Boolean(errors.password)} aria-describedby={errors.password ? "login-password-error" : undefined}
           />
           {errors.password && <p className="field-error" id="login-password-error" role="alert">{errors.password}</p>}
+          <p className="mt-2 text-right text-sm">
+            <Link className="font-semibold text-accent-text underline" href="/forgot-password">Forgot password?</Link>
+          </p>
         </div>
         {msg && <p className="rounded-[var(--radius)] bg-danger-bg p-3 text-sm text-danger" role="alert">{msg}</p>}
         {unconfirmed && (
