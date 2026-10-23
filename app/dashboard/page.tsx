@@ -13,6 +13,7 @@ type Toast = { kind: "success" | "error"; text: string } | null;
 // it never decides them. Search history below is device-local display data.
 export default function Dashboard() {
   const [usage, setUsage] = useState<UsageState | null>(null);
+  const [signedOut, setSignedOut] = useState(false);
   const [form, setForm] = useState({ leadType: "B2B companies", industry: "", location: "", size: "11-50", keywords: "" });
   const [fieldErrors, setFieldErrors] = useState<{ industry?: string; location?: string }>({});
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -56,7 +57,8 @@ export default function Dashboard() {
     try {
       const res = await fetch("/api/usage", { headers: await authHeaders() });
       const d = await res.json().catch(() => ({}));
-      if (d.data) setUsage(d.data as UsageState);
+      if (res.status === 401) { setSignedOut(true); return; }
+      if (d.data) { setSignedOut(false); setUsage(d.data as UsageState); }
     } catch { /* leave usage null; UI shows a loading state */ }
   }, [authHeaders]);
 
@@ -238,8 +240,16 @@ export default function Dashboard() {
 
   async function genOutreach(lead: Lead) {
     setSelected(lead); setOutreach("Generating…");
-    const res = await fetch("/api/ai/outreach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(lead) });
-    const data = await res.json(); setOutreach(data.message || "");
+    const res = await fetch("/api/ai/outreach", { method: "POST", headers: { "Content-Type": "application/json", ...(await authHeaders()) }, body: JSON.stringify(lead) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setOutreach("");
+      showToast("error", data.error || "Outreach failed. Please try again.");
+      if (data.usage) setUsage(data.usage); else void loadUsage();
+      return;
+    }
+    setOutreach(data.message || "");
+    void loadUsage();
   }
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm({ ...form, [k]: e.target.value });
@@ -258,13 +268,21 @@ export default function Dashboard() {
           <section className="card p-5" aria-label="Plan and daily usage">
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-fg">
-                {usage === null ? "Your plan" : isPro ? "Pro plan" : "Free plan"}
+                {signedOut ? "Not signed in" : usage === null ? "Your plan" : isPro ? "Pro plan" : "Free plan"}
               </h2>
               <span className="rounded-full border border-border px-3 py-1 text-xs font-semibold text-muted">
-                {usage === null ? "Loading…" : (usage.plan || "free").toUpperCase()}
+                {signedOut ? "GUEST" : usage === null ? "Loading…" : (usage.plan || "free").toUpperCase()}
               </span>
             </div>
-            {usage === null ? (
+            {signedOut ? (
+              <div className="mt-3">
+                <p className="text-sm text-muted">Sign in to search for leads and see your plan. Free accounts get 30 leads a day — no card needed.</p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <Link href="/login" className="btn-primary">Log in</Link>
+                  <Link href="/signup" className="btn-ghost">Sign up free</Link>
+                </div>
+              </div>
+            ) : usage === null ? (
               <div className="skeleton mt-4 h-5 w-3/4" aria-hidden="true" />
             ) : !usage.configured ? (
               <p className="mt-3 text-sm text-muted">Demo mode — server quotas activate when the database is connected.</p>
@@ -284,7 +302,7 @@ export default function Dashboard() {
                 <p className="mt-2 text-xs text-muted">{usage.remaining} remaining today · resets at midnight UTC</p>
               </>
             )}
-            {!isPro && (
+            {!signedOut && !isPro && usage !== null && (
               <Link href="/checkout" className="btn-primary btn-block mt-4">Upgrade to Pro</Link>
             )}
           </section>

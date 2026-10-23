@@ -5,7 +5,8 @@ import ManualPayment from "@/components/ManualPayment";
 
 declare global { interface Window { Razorpay?: new (opts: Record<string, unknown>) => { open: () => void } } }
 
-type Methods = { lemon: boolean; razorpay: boolean; stripe: boolean; manual: boolean };
+type Methods = { lemon: boolean; razorpay: boolean; stripe: boolean; manual: boolean; country: string | null };
+type Region = "NP" | "INTL";
 
 export default function Checkout() {
   const [msg, setMsg] = useState("");
@@ -14,13 +15,21 @@ export default function Checkout() {
   // shown — a customer never sees a button that can only fail, and never
   // sees a raw "env vars not configured" message.
   const [methods, setMethods] = useState<Methods | null>(null);
+  // Payment region: Nepal pays by eSewa/Khalti/bank (NPR); everyone else
+  // pays by card (USD). Auto-detected from the visitor's country, and
+  // the visitor can switch it — each region leads with ITS method.
+  const [region, setRegion] = useState<Region>("INTL");
 
   useEffect(() => {
     let alive = true;
     fetch("/api/payments/methods")
       .then((r) => r.json())
-      .then((d) => { if (alive) setMethods({ lemon: !!d.lemon, razorpay: !!d.razorpay, stripe: !!d.stripe, manual: !!d.manual }); })
-      .catch(() => { if (alive) setMethods({ lemon: false, razorpay: false, stripe: false, manual: false }); });
+      .then((d) => {
+        if (!alive) return;
+        setMethods({ lemon: !!d.lemon, razorpay: !!d.razorpay, stripe: !!d.stripe, manual: !!d.manual, country: d.country || null });
+        setRegion(d.country === "NP" ? "NP" : "INTL");
+      })
+      .catch(() => { if (alive) setMethods({ lemon: false, razorpay: false, stripe: false, manual: false, country: null }); });
     return () => { alive = false; };
   }, []);
 
@@ -74,21 +83,47 @@ export default function Checkout() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10 sm:py-14">
       <h1 className="text-3xl font-bold text-fg">Upgrade to LeadsForceGen Pro</h1>
-      <p className="text-muted text-sm mt-2">Unlimited* leads, CSV export and full AI outreach — $19/mo{methods?.razorpay ? " (₹1,499 via Razorpay)" : ""}. *fair use.</p>
-      <div className="mt-6 space-y-3">
-        {methods === null && <p className="text-sm text-muted" role="status">Loading payment options…</p>}
-        {methods?.lemon && <button disabled={busy} onClick={payLemon} className="btn-primary btn-block">🌍 Pay worldwide — Card / PayPal / Apple Pay (Lemon Squeezy)</button>}
-        {methods?.razorpay && <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>}
-        {methods?.stripe && <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>}
-        {methods && !methods.lemon && !methods.razorpay && !methods.stripe && (
-          <p className="text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="status">
-            Online card payments are opening very shortly — we are connecting them now. {methods.manual ? "You can pay manually below in the meantime." : "Please check back soon."}
-          </p>
-        )}
+      <p className="text-muted text-sm mt-2">Unlimited* leads, Excel/CSV export and full AI outreach — $19/mo or NPR pricing from Nepal. *fair use.</p>
+
+      {/* Region selector: each country leads with the payment method
+          that actually works there. Auto-set from the visitor's
+          country; switchable by hand. */}
+      <div className="mt-6" role="group" aria-label="Paying from">
+        <span className="label" id="region-label">I&rsquo;m paying from</span>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="region-label">
+          <button type="button" role="radio" aria-checked={region === "NP"} onClick={() => setRegion("NP")} className={region === "NP" ? "btn-primary" : "btn-ghost"}>Nepal</button>
+          <button type="button" role="radio" aria-checked={region === "INTL"} onClick={() => setRegion("INTL")} className={region === "INTL" ? "btn-primary" : "btn-ghost"}>Another country</button>
+        </div>
       </div>
+
+      {region === "INTL" ? (
+        <div className="mt-6 space-y-3">
+          {methods === null && <p className="text-sm text-muted" role="status">Loading payment options…</p>}
+          {methods?.lemon && <button disabled={busy} onClick={payLemon} className="btn-cta btn-block">Pay worldwide — Card / PayPal / Apple Pay</button>}
+          {methods?.razorpay && <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>}
+          {methods?.stripe && <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>}
+          {methods && !methods.lemon && !methods.razorpay && !methods.stripe && (
+            <p className="text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="status">
+              Online card payments are opening very shortly — we are connecting them now. Please check back soon.
+            </p>
+          )}
+          {methods?.manual && (
+            <p className="text-center text-sm text-muted">
+              Paying from Nepal?{" "}
+              <button type="button" onClick={() => setRegion("NP")} className="font-semibold text-accent-text underline">Pay with eSewa / Khalti instead</button>
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="mt-2">
+          {methods?.lemon && (
+            <button disabled={busy} onClick={payLemon} className="btn-ghost btn-block mt-4">Or pay by card in USD ($19) — Card / PayPal / Apple Pay</button>
+          )}
+        </div>
+      )}
       {msg && <p className="mt-4 text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="alert">{msg}</p>}
-      <ManualPayment />
-      <p className="text-xs text-muted mt-4">🔒 Secure by design: prices are set on the server, payments are signature-verified on the server, and duplicate payments / replayed webhooks are automatically skipped — a browser success message alone can never activate Pro.</p>
+      {region === "NP" && <ManualPayment />}
+      <p className="text-xs text-muted mt-4">Secure by design: prices are set on the server, payments are signature-verified on the server, and duplicate payments / replayed webhooks are automatically skipped — a browser success message alone can never activate Pro.</p>
       <Link href="/dashboard" className="block text-center mt-6 text-sm font-semibold text-accent-text underline">← Back to dashboard</Link>
     </div>
   );
