@@ -185,7 +185,7 @@ async function handlePost(req: Request) {
   // common repeat request — a hit answers in well under a second instead
   // of re-running the map query and website crawl. Quota still applies.
   const limitWanted = Math.min(want, 30);
-  const searchKey = `search:v4:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
+  const searchKey = `search:v5:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
   let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
   const fromCache = Boolean(engine);
   if (!engine) {
@@ -195,7 +195,7 @@ async function handlePost(req: Request) {
   if (engine.leads.length > 0) {
     const withEmail = engine.leads.filter((l) => l.email).length;
     const withPhone = engine.leads.filter((l) => l.phone).length;
-    const note = `Found ${engine.leads.length} real businesses from public sources (OpenStreetMap + their own websites${fromCache ? "; served from the results cache, refreshed every few hours" : `, ${engine.pagesRead} pages read`}). Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and map source. Verify before outreach.`;
+    const note = `Found ${engine.leads.length} real businesses from public business listings (Overture Maps + OpenStreetMap) and their own websites${fromCache ? " (served from the results cache, refreshed every few hours)" : `, ${engine.pagesRead} pages read`}. Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and listing source. Verify before outreach.`;
     if (quotaUser) {
       const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
       if (!consumed) {

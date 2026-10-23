@@ -2,6 +2,7 @@ import "server-only";
 import { resolveMx } from "node:dns/promises";
 import { safeFetch } from "@/lib/safe-fetch";
 import { cacheGet, cacheSet } from "@/lib/cache";
+import { queryPlaces } from "@/lib/engine/placesDb";
 import type { Lead } from "@/lib/types";
 
 // Search Everywhere — phase 2 (public sources only, per policy):
@@ -401,7 +402,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     const terms = nicheTerms(niche);
     const precisePairs = new Set((NICHE_TAGS[niche] || []).map(([k, v]) => `${k}=${v}`));
 
-    type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string; precise: boolean; distKm: number };
+    type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string; precise: boolean; distKm: number; socialsSeed?: string[]; sourceUrl?: string; sourceName?: string; confidence?: number };
     const candidates: Candidate[] = [];
     const seenDomains = new Set<string>();
     for (const el of elements) {
@@ -442,6 +443,40 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       });
       if (candidates.length >= Math.max(limit * 3, 30)) break;
     }
+
+    // Merge stored listings (Overture Maps `places` table): the richest
+    // contact source we have (most rows carry phone/website, many carry
+    // email + socials from the listing). Deduped against map results by
+    // normalized name and by website domain; enrichment below still
+    // reads their websites and can upgrade the email to the one the
+    // business publishes itself.
+    try {
+      const dbPlaces = await queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit);
+      const seenNames = new Set(candidates.map((c) => c.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+      for (const p of dbPlaces) {
+        const key = p.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const dom = p.website ? domainOf(p.website) : "";
+        if (!key || seenNames.has(key) || (dom && seenDomains.has(dom))) continue;
+        seenNames.add(key);
+        if (dom) seenDomains.add(dom);
+        candidates.push({
+          el: { id: 0, type: "place" },
+          name: p.name,
+          website: p.website || undefined,
+          phone: p.phone || undefined,
+          email: p.email || undefined,
+          address: p.address || undefined,
+          precise: true,
+          distKm: haversineKm(geo.lat, geo.lon, p.lat, p.lon),
+          socialsSeed: p.socials || [],
+          sourceUrl: p.website
+            ? (p.website.startsWith("http") ? p.website : `https://${p.website}`)
+            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${p.name} ${p.locality || location}`)}`,
+          sourceName: "Overture Maps",
+          confidence: p.confidence,
+        });
+      }
+    } catch { /* listings DB unavailable — map sources still serve */ }
 
     // Rank before spending crawl budget: tag-precise businesses first,
     // then nearest to the searched center. Enrichment and final ordering
@@ -519,6 +554,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       const websiteAlive = e.websiteAlive;
       // Verify (never invent): does the published email's domain accept mail?
       const mxOk = email ? await emailDomainHasMx(email) : false;
+      const socials = [...new Set([...(c.socialsSeed || []), ...e.socials])];
       // Confidence (subset of the spec formula, honestly applied):
       let score = 10; // real business name from a public source
       if (e.address) score += 20;
@@ -528,7 +564,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (email && c.website && email.endsWith(`@${domainOf(c.website)}`)) score += 5;
       if (e.structured) score += 5; // contact came from the business's own structured data
       if (mxOk) score += 5; // email domain verified to accept mail (MX records)
-      if (e.socials.length) score += 5; // business publishes its social profiles on its own site
+      if (socials.length) score += 5; // business publishes its social profiles
+      if (c.confidence) score += Math.round(c.confidence * 5); // listing-source confidence (stored listings)
       if (c.precise) score += 10; // canonical OSM tag match (amenity=dentist etc.)
       if (c.distKm <= 1) score += 8; else if (c.distKm <= 5) score += 5; else if (c.distKm <= 15) score += 2;
       if (c.hours) score += 5;
@@ -541,15 +578,15 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         location: e.address || location,
         size: "",
         website: c.website ? domainOf(c.website) : "",
-        description: `Real business found on OpenStreetMap${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}. Contacts are published by the business itself${mxOk ? "; email domain verified (accepts mail)" : ""} — verify before outreach.`,
+        description: `Real business found via ${c.sourceName || "OpenStreetMap"}${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}. Contacts are published by the business itself${mxOk ? "; email domain verified (accepts mail)" : ""} — verify before outreach.`,
         score,
         email,
         phone,
         address: e.address,
-        socials: e.socials.length ? e.socials : undefined,
+        socials: socials.length ? socials : undefined,
         hours: c.hours,
-        sourceUrl: `https://www.openstreetmap.org/${c.el.type}/${c.el.id}`,
-        sourceName: "OpenStreetMap",
+        sourceUrl: c.sourceUrl || `https://www.openstreetmap.org/${c.el.type}/${c.el.id}`,
+        sourceName: c.sourceName || "OpenStreetMap",
       });
       if (leads.length >= limit) break;
     }
