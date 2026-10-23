@@ -69,7 +69,7 @@ def extract(country: str, bbox, out_csv: str) -> int:
       SELECT
         id,
         names.primary AS name,
-        categories.primary AS category,
+        basic_category AS category,
         (bbox.ymin + bbox.ymax) / 2 AS lat,
         (bbox.xmin + bbox.xmax) / 2 AS lon,
         phones[1] AS phone,
