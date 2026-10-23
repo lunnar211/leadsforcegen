@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { sendTelegram } from "@/lib/telegram";
 import { reviewManualPayment } from "@/lib/manualPayments";
@@ -172,8 +173,21 @@ async function reviewByShortId(admin: Admin, shortId: string, action: "approve" 
 }
 
 export async function POST(req: Request) {
+  // FAIL-CLOSED (hardened 2026-10-23 after the owner's self-hack audit):
+  // the original check skipped verification entirely when the env secret
+  // was missing, so a lost env var would have silently opened the bot —
+  // including /approve — to anyone who knew the admin chat id. Now a
+  // missing secret means NO command ever runs. The response stays 200
+  // either way so Telegram never retry-storms and probes learn nothing.
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (secret && req.headers.get("x-telegram-bot-api-secret-token") !== secret) {
+  const presented = req.headers.get("x-telegram-bot-api-secret-token") || "";
+  let secretOk = false;
+  if (secret && presented) {
+    const a = Buffer.from(secret);
+    const b = Buffer.from(presented);
+    secretOk = a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+  if (!secretOk) {
     return NextResponse.json({ ok: true });
   }
   const update = (await req.json().catch(() => null)) as { message?: { chat?: { id?: number }; text?: string } } | null;

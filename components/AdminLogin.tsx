@@ -38,8 +38,16 @@ export default function AdminLogin({ configured }: { configured: boolean }) {
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10 sm:py-14">
-      <h1 className="text-3xl font-bold text-fg">Admin access</h1>
-      <p className="mt-2 text-sm text-muted">This panel is restricted to the site owner only. It uses a separate owner login — your normal account login will not work here.</p>
+      <div className="flex items-center gap-3">
+        <span className="inline-flex items-center justify-center rounded-[10px] p-[9px] text-white shadow-md" style={{ background: "linear-gradient(135deg, var(--accent), var(--cta))" }} aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l7 2.8v5.4c0 4.6-3 7.7-7 9.3-4-1.6-7-4.7-7-9.3V5.8L12 3z" /><path d="m9 11.6 2.2 2.2L15.4 9.6" /></svg>
+        </span>
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-fg">Admin access</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">Owner only</p>
+        </div>
+      </div>
+      <p className="mt-4 text-sm leading-relaxed text-muted">This panel is restricted to the site owner. It uses a separate owner login — your normal account login will not work here.</p>
       {!configured && (
         <p className="mt-4 rounded-[var(--radius)] border border-warning bg-warning-bg p-3 text-sm text-warning" role="note">
           Admin login is locked because the server admin credentials are not configured yet (ADMIN_PASSWORD is not set in Vercel).

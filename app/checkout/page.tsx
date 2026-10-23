@@ -5,7 +5,7 @@ import ManualPayment from "@/components/ManualPayment";
 
 declare global { interface Window { Razorpay?: new (opts: Record<string, unknown>) => { open: () => void } } }
 
-type Methods = { lemon: boolean; razorpay: boolean; stripe: boolean; manual: boolean; country: string | null };
+type Methods = { lemon: boolean; paddle: boolean; razorpay: boolean; stripe: boolean; manual: boolean; country: string | null };
 type Region = "NP" | "INTL";
 
 export default function Checkout() {
@@ -26,10 +26,10 @@ export default function Checkout() {
       .then((r) => r.json())
       .then((d) => {
         if (!alive) return;
-        setMethods({ lemon: !!d.lemon, razorpay: !!d.razorpay, stripe: !!d.stripe, manual: !!d.manual, country: d.country || null });
+        setMethods({ lemon: !!d.lemon, paddle: !!d.paddle, razorpay: !!d.razorpay, stripe: !!d.stripe, manual: !!d.manual, country: d.country || null });
         setRegion(d.country === "NP" ? "NP" : "INTL");
       })
-      .catch(() => { if (alive) setMethods({ lemon: false, razorpay: false, stripe: false, manual: false, country: null }); });
+      .catch(() => { if (alive) setMethods({ lemon: false, paddle: false, razorpay: false, stripe: false, manual: false, country: null }); });
     return () => { alive = false; };
   }, []);
 
@@ -46,6 +46,23 @@ export default function Checkout() {
       const d = await res.json().catch(() => ({}));
       if (res.ok && d.data?.url) { window.location.href = d.data.url; return; }
       setMsg(res.status === 401 ? (d.error || "Sign in first, then try again.") : "Worldwide checkout is not available right now. Please try again shortly.");
+    } catch { setMsg("Something went wrong starting checkout. Please try again."); }
+    finally { setBusy(false); }
+  }
+
+  async function payPaddle() {
+    setBusy(true); setMsg("");
+    try {
+      const { supabase } = await import("@/lib/supabaseClient");
+      const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+      const token = data.session?.access_token;
+      const res = await fetch("/api/payments/paddle/checkout", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.data?.url) { window.location.href = d.data.url; return; }
+      setMsg(res.status === 401 ? (d.error || "Sign in first, then try again.") : "Paddle checkout is not available right now. Please try again shortly.");
     } catch { setMsg("Something went wrong starting checkout. Please try again."); }
     finally { setBusy(false); }
   }
@@ -100,9 +117,10 @@ export default function Checkout() {
         <div className="mt-6 space-y-3">
           {methods === null && <p className="text-sm text-muted" role="status">Loading payment options…</p>}
           {methods?.lemon && <button disabled={busy} onClick={payLemon} className="btn-cta btn-block">Pay worldwide — Card / PayPal / Apple Pay</button>}
+          {methods?.paddle && <button disabled={busy} onClick={payPaddle} className="btn-ghost btn-block">Pay with Paddle — cards worldwide</button>}
           {methods?.razorpay && <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>}
           {methods?.stripe && <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>}
-          {methods && !methods.lemon && !methods.razorpay && !methods.stripe && (
+          {methods && !methods.lemon && !methods.paddle && !methods.razorpay && !methods.stripe && (
             <p className="text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="status">
               Online card payments are opening very shortly — we are connecting them now. Please check back soon.
             </p>

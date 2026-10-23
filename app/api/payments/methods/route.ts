@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { gatewayConfigured, lemonConfigured } from "@/lib/payments/plans";
+import { gatewayConfigured, lemonConfigured, paddleConfigured } from "@/lib/payments/plans";
 
 // Which payment options are actually connected on the server. Returns
 // booleans ONLY — never key values — so the checkout page can show just
@@ -13,6 +13,7 @@ export async function GET(req: Request) {
   const country = (req.headers.get("x-vercel-ip-country") || "").toUpperCase();
   return Response.json({
     lemon: lemonConfigured(),
+    paddle: paddleConfigured(),
     razorpay: gatewayConfigured("razorpay"),
     stripe: gatewayConfigured("stripe"),
     manual: Boolean(process.env.MANUAL_PAYMENT_INSTRUCTIONS),

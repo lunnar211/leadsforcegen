@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -31,6 +31,16 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [resent, setResent] = useState("");
   const router = useRouter();
+
+  // Already signed in? The login form is pointless — go to the app.
+  useEffect(() => {
+    if (!supabase) return;
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (alive && data.session) router.replace("/dashboard");
+    });
+    return () => { alive = false; };
+  }, [router]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();

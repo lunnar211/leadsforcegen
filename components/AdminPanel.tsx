@@ -59,37 +59,72 @@ export default function AdminPanel() {
   const cards = [["Total users", stats.users], ["Searches", stats.searches], ["Leads generated", stats.leads], ["Pro subscribers", stats.pro]] as const;
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:py-10">
-      <h1 className="text-3xl font-bold text-fg">Admin Panel</h1>
-      <p className="text-sm text-muted mt-2">
+      {/* Dense-dashboard header (UI/UX Pro Max, admin system): title,
+          live-state badge and the session action on one bar. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight text-fg sm:text-3xl">Admin Panel</h1>
+          <p className="mt-0.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted">LeadsForceGen control room</p>
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-fg" role="status">
+          <span className="h-2 w-2 rounded-full" style={{ background: live ? "var(--success)" : "var(--warning)" }} aria-hidden="true" />
+          {live ? "Live data" : "Demo data"}
+        </span>
+        <button onClick={async () => { await fetch("/api/admin/login", { method: "DELETE" }); location.reload(); }} className="btn-ghost ml-auto px-3.5 text-sm">Log out of admin</button>
+      </div>
+      <p className="mt-3 text-sm text-muted">
         {live
-          ? "Live data from Supabase, served by the owner-only admin API."
+          ? "Live data from Supabase, served by the owner-only admin API. The browser never receives database credentials."
           : "Demo / sample data — the admin API is unavailable (Supabase not configured or the schema has not been applied yet)."}
       </p>
-      <p className="text-xs text-success mt-2">Protected: this panel loads only after the owner admin login (email + password, server-verified), and all data and controls run through server APIs — the browser never gets database credentials.</p>
-      <button onClick={async () => { await fetch("/api/admin/login", { method: "DELETE" }); location.reload(); }} className="btn-ghost mt-3 px-3 py-1.5 text-xs">Log out of admin</button>
-      {msg && <p className="mt-3 text-sm text-fg" role="status">{msg}</p>}
+      {msg && <p className="mt-3 rounded-[var(--radius)] border border-border bg-surface p-3 text-sm text-fg" role="status">{msg}</p>}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
-        {cards.map(([k, v]) => <div key={k} className="card p-5"><p className="text-sm text-muted">{k}</p><p className="text-3xl font-extrabold text-fg mt-1">{v}</p></div>)}
+      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {cards.map(([k, v]) => (
+          <div key={k} className="card card-hover relative overflow-hidden p-4 sm:p-5">
+            <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: "linear-gradient(90deg, var(--accent), var(--cta))" }} aria-hidden="true" />
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{k}</p>
+            <p className="mt-1.5 text-3xl font-extrabold tracking-tight text-fg">{v}</p>
+          </div>
+        ))}
       </div>
 
-      <h2 className="font-semibold text-fg mt-8">Users {live ? "" : "(demo)"}</h2>
-      <input
-        type="search" value={userQuery} onChange={(e) => setUserQuery(e.target.value)}
-        placeholder="Search users by email…" aria-label="Search users by email"
-        className="input mt-3 max-w-sm"
-      />
+      <div className="mt-10 flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-bold tracking-tight text-fg">Users {live ? "" : "(demo)"}</h2>
+        <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-muted">{users.length} shown</span>
+        <input
+          type="search" value={userQuery} onChange={(e) => setUserQuery(e.target.value)}
+          placeholder="Search users by email…" aria-label="Search users by email"
+          className="input ml-auto w-full max-w-xs"
+        />
+      </div>
       <div className="card mt-3 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-surface text-left text-muted"><tr><th className="p-3">Email</th><th className="p-3">Plan</th><th className="p-3">Role</th><th className="p-3">Status</th><th className="p-3">Joined</th><th className="p-3">Controls</th></tr></thead>
+          <thead className="bg-surface text-left">
+            <tr className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+              <th className="px-4 py-3">Email</th><th className="px-4 py-3">Plan</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Joined</th><th className="px-4 py-3">Controls</th>
+            </tr>
+          </thead>
           <tbody>{users.filter((u) => !userQuery.trim() || u.email.toLowerCase().includes(userQuery.trim().toLowerCase())).map(u => (
-            <tr key={u.id} className="border-t border-border">
-              <td className="p-3 text-fg break-all">{u.email}</td><td className="p-3">{u.plan}</td><td className="p-3">{u.role}</td>
-              <td className="p-3">{u.is_active ? "Active" : "Banned / inactive"}</td><td className="p-3">{String(u.created_at).slice(0, 10)}</td>
-              <td className="p-3">
+            <tr key={u.id} className="border-t border-border transition-colors hover:bg-surface">
+              <td className="break-all px-4 py-3 font-medium text-fg">{u.email}</td>
+              <td className="px-4 py-3">
+                {u.plan === "pro"
+                  ? <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-bold text-cta-fg" style={{ background: "var(--cta)" }}>PRO</span>
+                  : <span className="inline-flex rounded-full border border-border px-2.5 py-1 text-xs font-semibold text-muted">FREE</span>}
+              </td>
+              <td className="px-4 py-3 text-muted">{u.role}</td>
+              <td className="px-4 py-3">
+                <span className="inline-flex items-center gap-2 text-muted">
+                  <span className="h-2 w-2 rounded-full" style={{ background: u.is_active ? "var(--success)" : "var(--danger)" }} aria-hidden="true" />
+                  {u.is_active ? "Active" : "Banned"}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-muted">{String(u.created_at).slice(0, 10)}</td>
+              <td className="px-4 py-3">
                 <span className="flex flex-wrap gap-2">
-                  <button onClick={() => control(u, "toggle-plan")} className="btn-ghost !min-h-[44px] px-2 py-1 text-xs">Toggle plan</button>
-                  <button onClick={() => control(u, "toggle-active")} className="btn-ghost !min-h-[44px] px-2 py-1 text-xs">{u.is_active ? "Ban / deactivate" : "Reactivate"}</button>
+                  <button onClick={() => control(u, "toggle-plan")} className="btn-ghost !min-h-[44px] px-3 py-1 text-xs">Toggle plan</button>
+                  <button onClick={() => control(u, "toggle-active")} className="btn-ghost !min-h-[44px] px-3 py-1 text-xs">{u.is_active ? "Ban / deactivate" : "Reactivate"}</button>
                 </span>
               </td></tr>))}
           </tbody>

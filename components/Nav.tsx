@@ -89,6 +89,21 @@ export default function Nav() {
     };
   }, []);
 
+  // Re-check the session on every navigation. The mount-only check
+  // could leave a stale "Login" visible right after an in-app login
+  // redirect (owner report 2026-10-23); the auth listener usually
+  // catches it, but a fresh getSession on route change is bulletproof.
+  useEffect(() => {
+    let cancelled = false;
+    loadSupabase().then(({ supabase }) => {
+      if (cancelled || !supabase) return;
+      supabase.auth.getSession().then(({ data }) => {
+        if (!cancelled) setSignedIn(Boolean(data.session));
+      });
+    });
+    return () => { cancelled = true; };
+  }, [pathname]);
+
   // Close the mobile panel on navigation (adjust-state-on-render pattern).
   const [prevPath, setPrevPath] = useState(pathname);
   if (pathname !== prevPath) {

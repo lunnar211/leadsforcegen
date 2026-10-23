@@ -36,6 +36,16 @@ export function lemonConfigured(): boolean {
   );
 }
 
+// Paddle (worldwide, Merchant of Record — the second free-to-join MoR
+// after Lemon Squeezy). The price lives in the Paddle dashboard Price
+// (PADDLE_PRICE_ID_PRO); the API key creates transactions server-side.
+export function paddleConfigured(): boolean {
+  return Boolean(process.env.PADDLE_API_KEY && process.env.PADDLE_PRICE_ID_PRO);
+}
+export function paddleApiBase(): string {
+  return process.env.PADDLE_ENV === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+}
+
 export type PlanId = keyof typeof PLANS;
 export type Gateway = "razorpay" | "stripe";
 

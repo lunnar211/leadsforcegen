@@ -18,6 +18,10 @@ alter table if exists profiles add column if not exists created_at timestamptz n
 alter table if exists payments add column if not exists method text;
 alter table if exists payments add column if not exists months int;
 alter table if exists payments add column if not exists proof_path text;
+-- Paddle added as a gateway (2026-10-23): widen the gateway CHECK on
+-- databases created before Paddle existed.
+alter table if exists payments drop constraint if exists payments_gateway_check;
+alter table if exists payments add constraint payments_gateway_check check (gateway in ('razorpay','stripe','manual','lemonsqueezy','paddle'));
 
 do $$
 begin
@@ -82,7 +86,7 @@ create table if not exists payments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete set null,
   email text,
-  gateway text not null check (gateway in ('razorpay','stripe','manual','lemonsqueezy')),
+  gateway text not null check (gateway in ('razorpay','stripe','manual','lemonsqueezy','paddle')),
   gateway_payment_id text unique,
   gateway_order_id text unique,
   plan text not null default 'pro',
