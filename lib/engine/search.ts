@@ -387,6 +387,49 @@ export function domainOf(website: string): string {
   }
 }
 
+// Find the business's REAL contact page via its sitemap instead of only
+// guessing /contact: many sites put it at /contact-us, /get-in-touch,
+// /about/contact, localized paths, etc. Reads /sitemap.xml (and one
+// level of sitemap-index children), keeps same-origin URLs whose path
+// looks like a contact page. Bounded (<=3 sitemap fetches, <=3 results)
+// and fails open to [] — callers fall back to the static guesses.
+export async function discoverContactPages(origin: string): Promise<string[]> {
+  const locsOf = (xml: string): string[] => {
+    const out: string[] = [];
+    for (const m of xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)) {
+      out.push(m[1]);
+      if (out.length >= 300) break;
+    }
+    return out;
+  };
+  const contactish = (u: string): boolean => {
+    try {
+      const parsed = new URL(u);
+      if (parsed.origin !== origin) return false;
+      return /contact|get-in-touch|reach-us|talk-to-us/i.test(parsed.pathname);
+    } catch {
+      return false;
+    }
+  };
+  try {
+    const first = await safeFetch(`${origin}/sitemap.xml`);
+    if (first.status < 200 || first.status >= 400) return [];
+    let locs = locsOf(first.text);
+    const children = locs.filter((u) => /\.xml($|\?)/i.test(u)).slice(0, 2);
+    if (!locs.some((u) => contactish(u)) && children.length) {
+      for (const child of children) {
+        try {
+          const sub = await safeFetch(child);
+          if (sub.status >= 200 && sub.status < 400) locs = [...locs, ...locsOf(sub.text)];
+        } catch { /* skip a dead child sitemap */ }
+      }
+    }
+    return [...new Set(locs.filter(contactish))].slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
 export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number };
 
 export async function searchEverywhere(niche: string, location: string, limit: number): Promise<EngineResult> {
@@ -514,13 +557,17 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         }
       }
       const base = (c.website.startsWith("http") ? c.website : `https://${c.website}`).replace(/\/$/, "");
-      for (const path of [base, `${base}/contact`, `${base}/contact-us`, `${base}/about`]) {
+      const paths = [base, `${base}/contact`, `${base}/contact-us`, `${base}/about`];
+      for (let pi = 0; pi < paths.length; pi++) {
+        const path = paths[pi];
         if ((e.email && e.phone) || pagesRead >= 24 || Date.now() > deadline) break;
+        let homeOrigin = "";
         try {
           const page = await safeFetch(path);
           if (page.status >= 200 && page.status < 400) {
             e.websiteAlive = true;
             pagesRead += 1;
+            if (pi === 0) { try { homeOrigin = new URL(page.finalUrl || base).origin; } catch { /* keep base */ } }
             const ld = extractJsonLd(page.text);
             if (ld.email || ld.phone) e.structured = true;
             const found = extractContacts(page.text, domain);
@@ -532,6 +579,14 @@ export async function searchEverywhere(niche: string, location: string, limit: n
             }
           }
         } catch { /* robots/blocked/dead — skip quietly */ }
+        // After the homepage: if no email yet, ask the sitemap where the
+        // real contact page lives and queue it ahead of the guesses.
+        if (pi === 0 && homeOrigin && !e.email && paths.length < 7) {
+          const discovered = await discoverContactPages(homeOrigin);
+          for (const u of discovered) {
+            if (!paths.includes(u) && paths.length < 7) paths.splice(1, 0, u);
+          }
+        }
       }
       if (domain) {
         void cacheSet(`site:${domain}`, {

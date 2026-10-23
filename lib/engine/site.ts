@@ -1,6 +1,6 @@
 import "server-only";
 import { safeFetch, assertSafeUrl } from "@/lib/safe-fetch";
-import { domainOf, extractContacts, extractJsonLd, extractSocials } from "@/lib/engine/search";
+import { discoverContactPages, domainOf, extractContacts, extractJsonLd, extractSocials } from "@/lib/engine/search";
 import type { Lead } from "@/lib/types";
 
 // One-click website extraction: the user pastes a business website and
@@ -30,6 +30,10 @@ function humanizeKind(kind?: string): string {
   return /^organization$/i.test(spaced) ? "" : spaced; // too generic to be an industry
 }
 
+// discoverContactPages lives in lib/engine/search.ts (this file already
+// imports from there); it finds a site's real contact page via its
+// sitemap instead of only guessing /contact.
+
 export type SiteLeadResult = { lead: Lead | null; reason?: string };
 
 export async function leadFromWebsite(rawUrl: string): Promise<SiteLeadResult> {
@@ -50,7 +54,8 @@ export async function leadFromWebsite(rawUrl: string): Promise<SiteLeadResult> {
   }
 
   const domain = domainOf(url.toString());
-  const candidates = [...new Set([url.toString(), `${url.origin}/contact`, `${url.origin}/contact-us`, `${url.origin}/about`])];
+  const discovered = await discoverContactPages(url.origin);
+  const candidates = [...new Set([url.toString(), ...discovered, `${url.origin}/contact`, `${url.origin}/contact-us`, `${url.origin}/about`])];
 
   let name: string | undefined;
   let kind = "";
