@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { type Lead } from "@/lib/types";
 import { supabase } from "@/lib/supabaseClient";
+import SupportCard from "@/components/SupportCard";
 
 type HistoryItem = { at: string; industry: string; location: string; count: number };
 type UsageState = { configured: boolean; plan: string; used: number; limit: number; remaining: number };
@@ -487,6 +488,8 @@ export default function Dashboard() {
               <pre className="mt-3 whitespace-pre-wrap break-words text-sm text-fg">{outreach}</pre>
             </section>
           )}
+
+          <SupportCard />
 
           <section className="mt-8" aria-label="Search history">
             <h2 className="text-lg font-semibold text-fg">Search history <span className="text-sm font-normal text-muted">(this device)</span></h2>

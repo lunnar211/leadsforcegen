@@ -21,6 +21,28 @@ export default function ManualPayment() {
   const [file, setFile] = useState<File | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [coupon, setCoupon] = useState("");
+  const [couponPct, setCouponPct] = useState<number | null>(null);
+  const [couponMsg, setCouponMsg] = useState("");
+
+  async function applyCoupon() {
+    const code = coupon.trim().toUpperCase();
+    if (!code) return;
+    setCouponMsg("");
+    try {
+      const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+      const token = data.session?.access_token;
+      if (!token) { setCouponMsg("Log in first, then apply the code."); return; }
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.ok) { setCouponPct(Number(d.data.percent_off)); setCouponMsg(`Code applied: ${d.data.percent_off}% off.`); }
+      else { setCouponPct(null); setCouponMsg(d.error || "That code is not valid."); }
+    } catch { setCouponMsg("Could not check the code. Try again."); }
+  }
 
   useEffect(() => {
     fetch("/api/payments/manual-info")
@@ -40,6 +62,7 @@ export default function ManualPayment() {
       const form = new FormData();
       form.set("method", method);
       form.set("months", months);
+      if (couponPct) form.set("coupon_code", coupon.trim().toUpperCase());
       form.set("proof", file);
       const res = await fetch("/api/payments/manual-proof", {
         method: "POST",
@@ -61,7 +84,8 @@ export default function ManualPayment() {
   }
 
   if (!info) return null;
-  const price = info.pricesNpr[months];
+  const basePrice = info.pricesNpr[months];
+  const price = couponPct ? Math.max(1, Math.round(basePrice * (1 - couponPct / 100))) : basePrice;
 
   return (
     <div className="card mt-8 p-5">
@@ -89,7 +113,15 @@ export default function ManualPayment() {
                 {Object.keys(info.pricesNpr).map((m) => (<option key={m} value={m}>{m} month{Number(m) > 1 ? "s" : ""} — NPR {info.pricesNpr[m].toLocaleString()}</option>))}
               </select>
             </div>
-            <p className="text-sm text-muted">Send exactly <b className="text-fg">NPR {price?.toLocaleString()}</b>, then upload the payment screenshot:</p>
+            <div>
+              <label className="label" htmlFor="mp-coupon">Coupon code (optional)</label>
+              <div className="flex gap-2">
+                <input id="mp-coupon" className="input" value={coupon} onChange={(e) => { setCoupon(e.target.value.toUpperCase()); setCouponPct(null); }} placeholder="LAUNCH20" maxLength={32} />
+                <button type="button" className="btn-ghost shrink-0 px-4" onClick={applyCoupon}>Apply</button>
+              </div>
+              {couponMsg && <p className="mt-1.5 text-xs text-muted" role="status">{couponMsg}</p>}
+            </div>
+            <p className="text-sm text-muted">Send exactly <b className="text-fg">NPR {price?.toLocaleString()}</b>{couponPct ? <> (was NPR {basePrice?.toLocaleString()}, {couponPct}% off)</> : null}, then upload the payment screenshot:</p>
             <label className="label" htmlFor="mp-proof">Payment screenshot</label><input id="mp-proof" aria-label="Payment proof image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] || null)} className="input text-sm" />
             <button disabled={busy} className="btn-primary btn-block">{busy ? "Submitting…" : "Submit payment proof"}</button>
           </form>

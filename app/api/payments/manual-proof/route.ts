@@ -62,7 +62,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Proof image must be 2 MB or smaller." }, { status: 400 });
   }
 
-  const admin = createClient(url, service, { auth: { persistSession: false } });
+  // Coupon: the discount is recomputed HERE from the coupons table —
+  // the client only sends a code, never an amount. Invalid/exhausted
+  // codes are ignored (full price) rather than blocking the purchase.
+  const couponCode = String(form.get("coupon_code") || "").trim().toUpperCase();
+  let amount = MANUAL_PRICES_NPR[months];
+  let appliedCoupon: string | null = null;
+  const adminPre = createClient(url, service, { auth: { persistSession: false } });
+  if (couponCode) {
+    try {
+      const { data } = await adminPre.from("coupons").select("percent_off, active, max_uses, used_count").eq("code", couponCode).limit(1);
+      const c = data && data[0];
+      if (c && c.active && (!c.max_uses || Number(c.used_count || 0) < Number(c.max_uses))) {
+        amount = Math.max(1, Math.round(amount * (1 - Number(c.percent_off) / 100)));
+        appliedCoupon = couponCode;
+      }
+    } catch { /* coupons table not created yet — charge full price */ }
+  }
+
+  const admin = adminPre;
   const proofId = `manual_${crypto.randomUUID()}`;
   const path = `${userData.user.id}/${proofId}.${ext}`;
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -70,29 +88,44 @@ export async function POST(req: Request) {
   if (upErr) {
     return NextResponse.json({ ok: false, error: "Could not store the proof. Please try again." }, { status: 502 });
   }
-  const { error: insErr } = await admin.from("payments").insert({
+  const baseRow = {
     user_id: userData.user.id,
     email: userData.user.email,
     gateway: "manual",
     gateway_payment_id: proofId,
     plan: "pro",
-    amount: MANUAL_PRICES_NPR[months],
+    amount,
     currency: "NPR",
     status: "pending",
     method,
     months,
     proof_path: path,
-  });
+  };
+  // coupon_code exists in the DB only after the latest schema runs; the
+  // typed client doesn't know the column yet, hence the cast.
+  let insErr = (await admin.from("payments").insert((appliedCoupon ? { ...baseRow, coupon_code: appliedCoupon } : baseRow) as never)).error;
+  if (insErr && appliedCoupon) {
+    // coupon_code column may not exist until the latest schema runs.
+    insErr = (await admin.from("payments").insert(baseRow)).error;
+  }
   if (insErr) {
     return NextResponse.json({ ok: false, error: "Could not record the payment. Please try again." }, { status: 502 });
+  }
+  if (appliedCoupon) {
+    // Count the use (best-effort; RPC-free increment via read-modify-write
+    // is fine at this volume, and a failure never blocks the buyer).
+    try {
+      const { data } = await admin.from("coupons").select("id, used_count").eq("code", appliedCoupon).limit(1);
+      if (data && data[0]) await admin.from("coupons").update({ used_count: Number(data[0].used_count || 0) + 1 }).eq("id", data[0].id);
+    } catch { /* ignore */ }
   }
   // Ping the owner's Telegram bot so the proof gets reviewed fast
   // (fails open — a Telegram outage never blocks a buyer).
   await sendTelegram(
-    `💰 New payment proof — NPR ${MANUAL_PRICES_NPR[months].toLocaleString()} via ${method} (${months} mo) from ${userData.user.email || "a buyer"}.\nReview it: send /payments here, or open the admin panel.`,
+    `💰 New payment proof — NPR ${amount.toLocaleString()} via ${method} (${months} mo)${appliedCoupon ? ` with coupon ${appliedCoupon}` : ""} from ${userData.user.email || "a buyer"}.\nReview it: send /payments here, or open the admin panel.`,
   );
   return NextResponse.json({
     ok: true,
-    data: { status: "pending", amount: MANUAL_PRICES_NPR[months], currency: "NPR", months, method },
+    data: { status: "pending", amount, currency: "NPR", months, method, coupon: appliedCoupon },
   });
 }

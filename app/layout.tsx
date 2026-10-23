@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
+import SiteBanner from "@/components/SiteBanner";
 
 // Typography per the LeadsForceGen design system (UI/UX Pro Max):
 // Plus Jakarta Sans — friendly, modern SaaS.
@@ -69,6 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="min-h-[100dvh] flex flex-col bg-bg text-fg font-sans antialiased">
+        <SiteBanner />
         <Nav />
         <main className="flex-1 w-full">{children}</main>
         <footer className="border-t border-border bg-surface safe-b">

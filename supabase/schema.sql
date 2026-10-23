@@ -226,3 +226,40 @@ create table if not exists public.search_cache (
   created_at timestamptz not null default now()
 );
 alter table public.search_cache enable row level security;
+
+-- ── Admin expansion (2026-10-23): coupons, support tickets, site settings ──
+-- All three are server-internal (service-role only, RLS on, no policies),
+-- exactly like search_cache: the browser never touches them directly.
+create table if not exists public.coupons (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  percent_off int not null check (percent_off between 1 and 90),
+  active boolean not null default true,
+  max_uses int,
+  used_count int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table public.coupons enable row level security;
+
+create table if not exists public.support_tickets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid,
+  email text not null,
+  subject text not null,
+  message text not null,
+  status text not null default 'open' check (status in ('open','answered','closed')),
+  admin_reply text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.support_tickets enable row level security;
+create index if not exists support_tickets_status_idx on public.support_tickets (status, created_at desc);
+
+create table if not exists public.site_settings (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.site_settings enable row level security;
+
+alter table if exists payments add column if not exists coupon_code text;

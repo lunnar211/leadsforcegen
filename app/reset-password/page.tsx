@@ -21,9 +21,9 @@ function ResetForm() {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (!supabase) { setLinkError("Demo mode: Supabase is not configured in this environment."); return; }
     let alive = true;
     (async () => {
+      if (!supabase) { if (alive) setLinkError("Demo mode: Supabase is not configured in this environment."); return; }
       const code = params.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
