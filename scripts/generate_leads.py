@@ -39,6 +39,15 @@ CATEGORIES = {
     "clinic": ["clinic", "medical_clinic", "doctor"], "gym": ["gym", "fitness_center"],
     "salon": ["beauty_salon", "salon", "barber_shop"], "plumber": ["plumber"],
     "electrician": ["electrician"], "lawyer": ["lawyer", "legal_services"],
+    "school": ["specialty_school", "high_school", "preschool", "elementary_school",
+               "middle_school", "college_university", "educational_service",
+               "education", "tutoring_service"],
+    "teacher": ["specialty_school", "high_school", "preschool", "elementary_school",
+                "middle_school", "college_university", "educational_service",
+                "education", "tutoring_service"],
+    "real estate": ["real_estate_service"], "bank": ["bank_or_credit_union"],
+    "car dealer": ["auto_dealer", "automotive_service"],
+    "travel agency": ["travel_service"],
 }
 FIELDS = ["name", "category", "phone", "email", "website", "socials",
           "address", "locality", "country", "confidence"]

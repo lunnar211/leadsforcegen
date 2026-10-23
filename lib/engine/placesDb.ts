@@ -37,6 +37,15 @@ const CATEGORY_MAP: Record<string, string[]> = {
   plumber: ["plumber"],
   electrician: ["electrician"],
   lawyer: ["lawyer", "legal_services"],
+  // Education & everyday services — category strings measured from the
+  // loaded dataset itself (253 distinct categories, 2026-10-23).
+  school: ["specialty_school", "high_school", "preschool", "elementary_school", "middle_school", "college_university", "educational_service", "education", "tutoring_service"],
+  teacher: ["specialty_school", "high_school", "preschool", "elementary_school", "middle_school", "college_university", "educational_service", "education", "tutoring_service"],
+  training: ["educational_service", "education", "specialty_school"],
+  "real estate": ["real_estate_service"],
+  bank: ["bank_or_credit_union"],
+  "car dealer": ["auto_dealer", "automotive_service"],
+  "travel agency": ["travel_service"],
 };
 
 const FIELDS = "id,name,category,lat,lon,phone,website,email,socials,address,locality,confidence";
