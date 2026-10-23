@@ -6,6 +6,7 @@ website searches return complete leads instantly:
 | Workflow file | Schedule | What it does |
 |---|---|---|
 | `lead-db-monthly-refresh.json` | 5th of month, 05:00 | Downloads the new Overture Maps release and upserts AE + NP + US metros straight into the Supabase `places` table (`scripts/refresh_places.py`), then sends a Telegram report. |
+| `leads-generation.json` | On request (webhook) | The bridge: POST a niche + city → `scripts/generate_leads.py` pulls from the database (or the local dataset files) → writes ready-to-send Excel + CSV lead files to `out/` → Telegram report + webhook reply. |
 | `nightly-email-enrichment.json` | Daily, 02:00 | Visits the OWN websites of businesses that have a website but no email, extracts emails they publish (mailto / schema.org JSON-LD), and fills them in (`scripts/enrich_emails.py`) — so searches come back with emails already attached, no live crawling wait. Then a Telegram report. |
 
 Both write directly to Postgres. No dashboard CSV importer, ever again.
