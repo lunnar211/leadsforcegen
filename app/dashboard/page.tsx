@@ -388,15 +388,15 @@ export default function Dashboard() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold text-fg">{leads.length} leads</h2>
                   <div className="flex flex-wrap gap-2" role="group" aria-label="Export leads">
-                    <button onClick={exportCsv} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "📥 CSV" : "🔒 CSV (Pro)"}</button>
-                    <button onClick={() => void exportXlsx()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "📊 Excel" : "🔒 Excel (Pro)"}</button>
-                    <button onClick={() => void exportPdf()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "🧾 PDF" : "🔒 PDF (Pro)"}</button>
-                    <button onClick={exportJson} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "{} JSON" : "🔒 JSON (Pro)"}</button>
+                    <button onClick={exportCsv} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download CSV" : "CSV (Pro)"}</button>
+                    <button onClick={() => void exportXlsx()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download Excel" : "Excel (Pro)"}</button>
+                    <button onClick={() => void exportPdf()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download PDF" : "PDF (Pro)"}</button>
+                    <button onClick={exportJson} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download JSON" : "JSON (Pro)"}</button>
                   </div>
                 </div>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   {leads.map((l, i) => (
-                    <article key={i} className="card p-5">
+                    <article key={i} className="card card-hover p-5">
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="font-semibold text-fg break-words">{l.company}</h3>
                         <span className={`flex-none rounded-full px-2.5 py-1 text-xs font-bold ${l.score >= 70 ? "bg-success-bg text-success" : l.score >= 40 ? "bg-warning-bg text-warning" : "bg-danger-bg text-danger"}`}>Score {l.score}</span>
