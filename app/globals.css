@@ -255,6 +255,18 @@ button,
   box-shadow: var(--shadow-lg);
 }
 
+/* Scroll reveal (components/Reveal.tsx). The global reduced-motion
+   rule collapses the transition, so content simply appears. */
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 650ms ease, transform 650ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal.revealed {
+  opacity: 1;
+  transform: none;
+}
+
 .label {
   display: block;
   font-size: 0.875rem;

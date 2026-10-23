@@ -1,9 +1,11 @@
 import Link from "next/link";
+import Reveal from "@/components/Reveal";
 
-// Landing page — redesigned 2026-10-23 to the LeadsForceGen design
-// system (UI/UX Pro Max): Plus Jakarta Sans, trust-blue primary,
-// orange CTA, glassmorphism surfaces, SVG icons only, 44px targets,
-// AA contrast in both themes.
+// Landing page v2 (2026-10-23) — "designed, not vibe-coded":
+// product visual in the hero (real leads from the live database),
+// restrained palette (one accent word, orange only for CTAs),
+// hairline borders, deep soft shadows, scroll-reveal motion,
+// provenance strip instead of fake logos, rich closing CTA band.
 
 const iconProps = {
   width: 22,
@@ -60,6 +62,48 @@ const steps = [
   ["Reach out", "Export to Excel/CSV or generate AI outreach and start conversations."],
 ];
 
+// Real rows from the live places database (verified 2026-10-23) — the
+// hero shows the actual product, not a stock illustration.
+const mockLeads = [
+  { name: "Dr. Michael's Dental Clinic", meta: "Dental Clinic · Dubai", contact: "+971 4 330 0441", score: 94 },
+  { name: "Same Day Dental Implants", meta: "Dental Clinic · Dubai", contact: "info@samedayme.com", score: 91 },
+  { name: "Oris Dental Centre", meta: "Dental Clinic · Dubai", contact: "Website · Socials", score: 88 },
+];
+
+function DashboardMock() {
+  return (
+    <div className="relative mx-auto mt-14 max-w-3xl" aria-hidden="true">
+      <div className="absolute -inset-8 rounded-[36px] opacity-60 blur-2xl" style={{ background: "linear-gradient(120deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--cta) 18%, transparent))" }} />
+      <div className="card relative overflow-hidden text-left shadow-[var(--shadow-lg)]">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#f87171" }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#fbbf24" }} />
+          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#34d399" }} />
+          <span className="ml-3 hidden rounded-md bg-surface px-3 py-1 text-xs text-muted sm:block">leadsforcegen.vercel.app/dashboard</span>
+        </div>
+        <div className="space-y-3 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-lg border border-input-border bg-input-bg px-3 py-2 text-sm text-fg">Industry: <strong>Dentist</strong></span>
+            <span className="rounded-lg border border-input-border bg-input-bg px-3 py-2 text-sm text-fg">City: <strong>Dubai</strong></span>
+            <span className="rounded-lg px-4 py-2 text-sm font-bold text-accent-fg" style={{ background: "var(--accent)" }}>Find leads</span>
+            <span className="ml-auto hidden rounded-lg border border-border px-3 py-2 text-sm font-medium text-fg sm:block">Download Excel</span>
+          </div>
+          {mockLeads.map((l) => (
+            <div key={l.name} className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-fg">{l.name}</p>
+                <p className="truncate text-xs text-muted">{l.meta} · {l.contact}</p>
+              </div>
+              <span className="ml-auto shrink-0 rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: "var(--success-bg)", color: "var(--success)" }}>{l.score} fit</span>
+            </div>
+          ))}
+          <p className="pt-1 text-center text-[11px] text-muted">Real businesses from the live LeadsForceGen database</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Check() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0 text-success" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11" /></svg>
@@ -71,50 +115,65 @@ function Cross() {
   );
 }
 
+function Eyebrow({ children }: { children: string }) {
+  return <p className="text-center text-xs font-bold uppercase tracking-[0.18em] text-accent-text">{children}</p>;
+}
+
 export default function Home() {
   return (
     <div className="hero-mesh">
-      <div className="mx-auto w-full max-w-[1200px] px-4 py-12 sm:py-16">
+      <div className="mx-auto w-full max-w-[1200px] px-4 pb-16 pt-12 sm:pt-16">
         <section className="text-center">
           <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold text-fg shadow-sm">
             <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
             224,000+ verified businesses live — UAE · Nepal · US cities loading now
           </p>
-          <h1 className="mx-auto mt-6 max-w-3xl text-4xl font-extrabold leading-[1.08] tracking-tight text-fg sm:text-5xl lg:text-6xl">
-            Find <span className="bg-gradient-to-r from-accent to-cta bg-clip-text text-transparent">real business leads</span>, anywhere.
+          <h1 className="mx-auto mt-7 max-w-3xl text-[2.6rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-fg sm:text-6xl lg:text-[4.2rem]">
+            Find <span className="text-accent-text">real business leads</span>, anywhere.
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base text-muted sm:text-lg">
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
             Search real companies by industry and city, get the contacts they publish — phone, email, website, socials — scored by AI and ready to export. Free to start, unlimited* on Pro.
           </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+          <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
             <Link href="/signup" className="btn-cta">Start free — no card needed</Link>
             <Link href="/dashboard" className="btn-ghost">Open the dashboard</Link>
           </div>
           <p className="mt-3 text-xs text-muted">Free: 30 leads/day · Pro: unlimited* leads (fair use)</p>
 
-          <dl className="glass mx-auto mt-10 grid max-w-3xl grid-cols-2 gap-y-6 rounded-[calc(var(--radius)+8px)] px-6 py-6 shadow-[var(--shadow)] lg:grid-cols-4" aria-label="Platform numbers">
+          <DashboardMock />
+
+          <dl className="mx-auto mt-14 grid max-w-3xl grid-cols-2 gap-y-7 lg:grid-cols-4" aria-label="Platform numbers">
             {stats.map(([n, label]) => (
-              <div key={label} className="px-2">
-                <dt className="order-2 mt-1 block text-xs font-medium text-muted">{label}</dt>
-                <dd className="text-2xl font-extrabold text-fg sm:text-3xl">{n}</dd>
+              <div key={label} className="flex flex-col px-2">
+                <dd className="order-1 text-3xl font-extrabold tracking-tight text-fg">{n}</dd>
+                <dt className="order-2 mt-1 text-xs font-medium text-muted">{label}</dt>
               </div>
             ))}
           </dl>
+
+          <p className="mt-12 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+            Built on public business data · Overture Maps · OpenStreetMap · each business&rsquo;s own website
+          </p>
         </section>
 
-        <section className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Features">
-          {features.map((f) => (
-            <div key={f.title} className="card card-hover p-6">
-              <span className="inline-flex rounded-xl p-2.5 text-accent-text" style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)" }} aria-hidden="true">{f.icon}</span>
-              <h2 className="mt-4 font-semibold text-fg">{f.title}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted">{f.text}</p>
-            </div>
-          ))}
-        </section>
+        <Reveal className="mt-24">
+          <Eyebrow>Features</Eyebrow>
+          <h2 className="mt-3 text-center text-3xl font-bold tracking-tight text-fg">Everything you need to fill a pipeline</h2>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map((f) => (
+              <div key={f.title} className="card card-hover p-6">
+                <span className="inline-flex rounded-xl p-2.5 text-accent-text" style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)" }} aria-hidden="true">{f.icon}</span>
+                <h3 className="mt-4 font-semibold text-fg">{f.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted">{f.text}</p>
+              </div>
+            ))}
+          </div>
+        </Reveal>
 
-        <section className="mt-16" aria-label="How it works">
-          <h2 className="text-center text-2xl font-bold text-fg sm:text-3xl">From search to conversation in minutes</h2>
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
+        <Reveal className="mt-24">
+          <Eyebrow>How it works</Eyebrow>
+          <h2 className="mt-3 text-center text-3xl font-bold tracking-tight text-fg">From search to conversation in minutes</h2>
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
             {steps.map(([t, d], i) => (
               <div key={t} className="card p-6">
                 <span className="inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-extrabold text-accent-fg" style={{ background: "var(--accent)" }} aria-hidden="true">{i + 1}</span>
@@ -123,35 +182,47 @@ export default function Home() {
               </div>
             ))}
           </div>
-        </section>
+        </Reveal>
 
-        <section className="mx-auto mt-16 grid max-w-3xl gap-4 md:grid-cols-2" aria-label="Pricing">
-          <div className="card card-hover p-6">
-            <h2 className="text-xl font-bold text-fg">Free</h2>
-            <p className="mt-2 text-4xl font-extrabold text-fg">$0</p>
-            <ul className="mt-5 space-y-2.5 text-sm text-muted">
-              <li className="flex gap-2"><Check />30 leads per day</li>
-              <li className="flex gap-2"><Check />AI lead scoring</li>
-              <li className="flex gap-2"><Check />Search history</li>
-              <li className="flex gap-2"><Cross />No Excel/CSV export</li>
-              <li className="flex gap-2"><Cross />Limited AI outreach</li>
-            </ul>
-            <Link href="/signup" className="btn-ghost btn-block mt-7">Start free</Link>
+        <Reveal className="mt-24">
+          <Eyebrow>Pricing</Eyebrow>
+          <h2 className="mt-3 text-center text-3xl font-bold tracking-tight text-fg">Start free. Upgrade when it pays.</h2>
+          <div className="mx-auto mt-10 grid max-w-3xl gap-4 md:grid-cols-2">
+            <div className="card card-hover p-6">
+              <h3 className="text-xl font-bold text-fg">Free</h3>
+              <p className="mt-2 text-4xl font-extrabold text-fg">$0</p>
+              <ul className="mt-5 space-y-2.5 text-sm text-muted">
+                <li className="flex gap-2"><Check />30 leads per day</li>
+                <li className="flex gap-2"><Check />AI lead scoring</li>
+                <li className="flex gap-2"><Check />Search history</li>
+                <li className="flex gap-2"><Cross />No Excel/CSV export</li>
+                <li className="flex gap-2"><Cross />Limited AI outreach</li>
+              </ul>
+              <Link href="/signup" className="btn-ghost btn-block mt-7">Start free</Link>
+            </div>
+            <div className="card card-hover relative p-6" style={{ borderColor: "var(--cta)", borderWidth: 2 }}>
+              <span className="absolute -top-3 right-5 rounded-full px-3 py-1 text-xs font-bold text-cta-fg" style={{ background: "var(--cta)" }}>Most popular</span>
+              <h3 className="text-xl font-bold text-fg">Pro</h3>
+              <p className="mt-2 text-4xl font-extrabold text-fg">$19<span className="text-base font-medium text-muted">/mo</span></p>
+              <ul className="mt-5 space-y-2.5 text-sm text-muted">
+                <li className="flex gap-2"><Check />Unlimited* leads (fair use)</li>
+                <li className="flex gap-2"><Check />Up to 500 leads per search</li>
+                <li className="flex gap-2"><Check />Excel & CSV export</li>
+                <li className="flex gap-2"><Check />Full AI outreach generator</li>
+                <li className="flex gap-2"><Check />Secure worldwide checkout</li>
+              </ul>
+              <Link href="/checkout" className="btn-cta btn-block mt-7">Upgrade to Pro</Link>
+            </div>
           </div>
-          <div className="card card-hover relative p-6" style={{ borderColor: "var(--cta)", borderWidth: 2 }}>
-            <span className="absolute -top-3 right-5 rounded-full px-3 py-1 text-xs font-bold text-cta-fg" style={{ background: "var(--cta)" }}>Most popular</span>
-            <h2 className="text-xl font-bold text-fg">Pro</h2>
-            <p className="mt-2 text-4xl font-extrabold text-fg">$19<span className="text-base font-medium text-muted">/mo</span></p>
-            <ul className="mt-5 space-y-2.5 text-sm text-muted">
-              <li className="flex gap-2"><Check />Unlimited* leads (fair use)</li>
-              <li className="flex gap-2"><Check />Up to 500 leads per search</li>
-              <li className="flex gap-2"><Check />Excel & CSV export</li>
-              <li className="flex gap-2"><Check />Full AI outreach generator</li>
-              <li className="flex gap-2"><Check />Secure worldwide checkout</li>
-            </ul>
-            <Link href="/checkout" className="btn-cta btn-block mt-7">Upgrade to Pro</Link>
+        </Reveal>
+
+        <Reveal className="mt-24">
+          <div className="relative overflow-hidden rounded-[calc(var(--radius)+10px)] px-6 py-12 text-center shadow-[var(--shadow-lg)]" style={{ background: "linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--cta)))" }}>
+            <h2 className="text-3xl font-extrabold tracking-tight text-white">Your next customer is already in the database.</h2>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/85">Join free, run your first search in under a minute, and see real businesses — not samples.</p>
+            <Link href="/signup" className="mt-7 inline-flex min-h-[44px] items-center justify-center rounded-[var(--radius)] bg-white px-6 py-3 font-bold text-slate-900 shadow-lg transition-transform hover:-translate-y-0.5">Start free</Link>
           </div>
-        </section>
+        </Reveal>
 
         <p className="mx-auto mt-12 max-w-2xl text-center text-xs leading-relaxed text-muted">
           Leads are company-level prospects from public business data. Every lead shows its source so you can verify it before outreach. LeadsForceGen never sells personal phone numbers or personal emails, and never scrapes social media or Google.

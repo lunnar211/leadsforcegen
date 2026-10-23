@@ -71,13 +71,34 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-[100dvh] flex flex-col bg-bg text-fg font-sans antialiased">
         <Nav />
         <main className="flex-1 w-full">{children}</main>
-        <footer className="border-t border-border py-6 safe-b text-center text-xs text-muted">
-          <p>LeadsForceGen — AI-generated prospects must be verified before outreach.</p>
-          <nav className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-2 px-4" aria-label="Legal">
-            <a className="underline hover:text-fg" href="/privacy">Privacy</a>
-            <a className="underline hover:text-fg" href="/terms">Terms</a>
-            <a className="underline hover:text-fg" href="/unsubscribe">Unsubscribe / remove a business</a>
-          </nav>
+        <footer className="border-t border-border bg-surface safe-b">
+          <div className="mx-auto grid w-full max-w-[1200px] gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="font-bold text-fg">LeadsForceGen</p>
+              <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted">Real business leads from public data — searched, scored and exported in minutes. Verify a business before outreach.</p>
+            </div>
+            <nav aria-label="Product">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Product</p>
+              <ul className="mt-3 space-y-2 text-sm">
+                <li><a className="text-muted hover:text-fg" href="/dashboard">Dashboard</a></li>
+                <li><a className="text-muted hover:text-fg" href="/signup">Start free</a></li>
+                <li><a className="text-muted hover:text-fg" href="/checkout">Go Pro — $19/mo</a></li>
+              </ul>
+            </nav>
+            <nav aria-label="Legal">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Legal</p>
+              <ul className="mt-3 space-y-2 text-sm">
+                <li><a className="text-muted hover:text-fg" href="/privacy">Privacy</a></li>
+                <li><a className="text-muted hover:text-fg" href="/terms">Terms</a></li>
+                <li><a className="text-muted hover:text-fg" href="/unsubscribe">Remove a business</a></li>
+              </ul>
+            </nav>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Data</p>
+              <p className="mt-3 text-sm leading-relaxed text-muted">Built on Overture Maps, OpenStreetMap and the public websites of the businesses themselves. No social scraping, no personal data.</p>
+            </div>
+          </div>
+          <div className="border-t border-border py-4 text-center text-xs text-muted">© 2026 LeadsForceGen. All rights reserved.</div>
         </footer>
       </body>
     </html>
