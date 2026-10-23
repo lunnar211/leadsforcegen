@@ -243,7 +243,7 @@ function cleanSocialUrl(raw: string): string | null {
     if (!SOCIAL_HOSTS.includes(host)) return null;
     const path = u.pathname.replace(/\/$/, "");
     if (!path || path === "") return null;
-    if (/\/(sharer|share|plugins|dialog|intent|home)(\/|$)/i.test(path)) return null;
+    if (/\/(sharer|share|plugins|dialog|intent|home|watch|results|feed)(\/|$)/i.test(path)) return null;
     if (host === "linkedin.com" && !/^\/(company|in)\//.test(path)) return null;
     return `https://${host}${path}`;
   } catch {
@@ -251,7 +251,7 @@ function cleanSocialUrl(raw: string): string | null {
   }
 }
 
-function extractSocials(html: string): string[] {
+export function extractSocials(html: string): string[] {
   const found = new Set<string>();
   for (const m of html.matchAll(/href=["']([^"']+)["']/gi)) {
     const cleaned = cleanSocialUrl(m[1]);
@@ -261,7 +261,7 @@ function extractSocials(html: string): string[] {
   return [...found];
 }
 
-function extractContacts(html: string, domain: string): { email?: string; phone?: string } {
+export function extractContacts(html: string, domain: string): { email?: string; phone?: string } {
   const out: { email?: string; phone?: string } = {};
   const mailtos = [...html.matchAll(/mailto:([^"'?\s>]+)/gi)].map((m) => decodeURIComponent(m[1]).toLowerCase());
   const plain = (html.match(EMAIL_RE) || []).map((e) => e.toLowerCase());
@@ -272,7 +272,7 @@ function extractContacts(html: string, domain: string): { email?: string; phone?
     .replace(/\(dot\)/gi, ".");
   const decodedEmails = (decoded.match(EMAIL_RE) || []).map((e) => e.toLowerCase());
   const all = [...new Set([...mailtos, ...plain, ...decodedEmails])].filter(
-    (e) => !e.endsWith(".png") && !e.endsWith(".jpg") && !e.includes("example.") && !e.includes("sentry"),
+    (e) => !/\.(png|jpe?g|webp|svg|gif|css|js|ico)$/i.test(e) && !e.includes("example.") && !e.includes("sentry"),
   );
   if (all.length) {
     out.email =
@@ -289,8 +289,8 @@ function extractContacts(html: string, domain: string): { email?: string; phone?
 // OWN website is the highest-trust contact source: the business maintains
 // it for search engines. Extract email / telephone / address from any
 // Organization-like node, including @graph wrappers.
-function extractJsonLd(html: string): { email?: string; phone?: string; address?: string; socials: string[] } {
-  const out: { email?: string; phone?: string; address?: string; socials: string[] } = { socials: [] };
+export function extractJsonLd(html: string): { email?: string; phone?: string; address?: string; name?: string; hours?: string; kind?: string; socials: string[] } {
+  const out: { email?: string; phone?: string; address?: string; name?: string; hours?: string; kind?: string; socials: string[] } = { socials: [] };
   const blocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
   const visit = (node: unknown): void => {
     if (!node || typeof node !== "object") return;
@@ -299,6 +299,24 @@ function extractJsonLd(html: string): { email?: string; phone?: string; address?
     if (Array.isArray(o["@graph"])) o["@graph"].forEach(visit);
     const type = String(o["@type"] || "");
     if (/organization|localbusiness|store|restaurant|dentist|medical|professionalservice/i.test(type) || o.email || o.telephone) {
+      if (!out.kind && type) out.kind = type.split(",")[0];
+      if (!out.name && typeof o.name === "string" && o.name.trim()) out.name = o.name.trim();
+      if (!out.hours && o.openingHours) {
+        const oh = o.openingHours;
+        if (typeof oh === "string") out.hours = oh;
+        else if (Array.isArray(oh) && oh.every((h) => typeof h === "string")) out.hours = (oh as string[]).join(", ");
+        else {
+          const specs = Array.isArray(oh) ? oh : [oh];
+          const parts: string[] = [];
+          for (const s of specs) {
+            if (!s || typeof s !== "object") continue;
+            const sp = s as Record<string, unknown>;
+            const days = Array.isArray(sp.dayOfWeek) ? sp.dayOfWeek.join("/") : String(sp.dayOfWeek || "");
+            if (sp.opens && sp.closes) parts.push(`${days.replace(/https?:\/\/schema\.org\//g, "")} ${sp.opens}-${sp.closes}`.trim());
+          }
+          if (parts.length) out.hours = parts.join(", ");
+        }
+      }
       if (!out.email && typeof o.email === "string") {
         const e = o.email.replace(/^mailto:/i, "").trim().toLowerCase();
         if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.email = e;
@@ -346,7 +364,7 @@ function emailDomainHasMx(email: string): Promise<boolean> {
   return p;
 }
 
-function domainOf(website: string): string {
+export function domainOf(website: string): string {
   try {
     return new URL(website.startsWith("http") ? website : `https://${website}`).hostname.replace(/^www\./, "");
   } catch {

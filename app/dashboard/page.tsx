@@ -20,6 +20,8 @@ export default function Dashboard() {
   const [searchError, setSearchError] = useState("");
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [siteUrl, setSiteUrl] = useState("");
+  const [scraping, setScraping] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -116,6 +118,48 @@ export default function Dashboard() {
   function search(e: React.FormEvent) {
     e.preventDefault();
     void runSearch();
+  }
+
+  // One-click website scrape: paste a business website, get the lead it
+  // publishes on its own pages (POST /api/leads/from-url). The extracted
+  // lead is prepended to the current results so it can be exported with
+  // everything else.
+  async function runScrape() {
+    const target = siteUrl.trim();
+    if (!target) { showToast("error", "Paste a business website address first."); return; }
+    setScraping(true);
+    const ctrl = new AbortController();
+    const killer = setTimeout(() => ctrl.abort(), 45_000);
+    try {
+      const res = await fetch("/api/leads/from-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify({ url: target }),
+        signal: ctrl.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast("error", data.error || "Couldn't extract a lead from that website."); return; }
+      const lead = (data.leads || [])[0] as Lead | undefined;
+      if (!lead) { showToast("error", "No lead could be extracted from that website."); return; }
+      setLeads((prev) => [lead, ...prev]);
+      setNote(data.note || ""); setSource(data.source || "");
+      setSearched(true);
+      if (data.usage) setUsage(data.usage); else await loadUsage();
+      if (supabase) {
+        try {
+          const { data: u } = await supabase.auth.getUser();
+          if (u.user) {
+            await supabase.from("leads").insert([{ user_id: u.user.id, company: lead.company, industry: lead.industry, location: lead.location, size: lead.size, website: lead.website, description: lead.description, score: lead.score }]);
+          }
+        } catch {}
+      }
+      showToast("success", `Lead extracted: ${lead.company}.`);
+    } catch (err) {
+      const msg = err instanceof DOMException && err.name === "AbortError"
+        ? "That website took too long to read. Try again in a moment."
+        : "Couldn't reach the extraction service just now. Please try again.";
+      showToast("error", msg);
+    } finally { clearTimeout(killer); setScraping(false); }
   }
 
   const EXPORT_COLS = ["company", "industry", "location", "size", "website", "email", "phone", "address", "socials", "opening_hours", "score", "source_url", "description"] as const;
@@ -275,6 +319,25 @@ export default function Dashboard() {
               {loading ? "Searching…" : "🔍 Find leads"}
             </button>
           </form>
+
+          {/* One-click website scrape */}
+          <div className="card space-y-3 p-5">
+            <div>
+              <h2 className="font-semibold text-fg">Scrape a website</h2>
+              <p className="mt-1 text-sm text-muted">Paste any business website — get the contacts it publishes on its own pages, in one click.</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="f-siteurl">Website</label>
+              <input
+                id="f-siteurl" className="input" placeholder="e.g. some-dental-clinic.com" value={siteUrl}
+                onChange={(e) => setSiteUrl(e.target.value)} autoComplete="off" inputMode="url"
+              />
+            </div>
+            <button type="button" onClick={() => void runScrape()} disabled={scraping} className="btn-ghost btn-block" aria-busy={scraping}>
+              {scraping && <span className="spinner" aria-hidden="true" />}
+              {scraping ? "Reading website…" : "🌐 Extract lead from website"}
+            </button>
+          </div>
         </div>
 
         {/* Right column: results, outreach, history */}
