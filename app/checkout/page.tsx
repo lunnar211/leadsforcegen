@@ -74,7 +74,7 @@ export default function Checkout() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10 sm:py-14">
       <h1 className="text-3xl font-bold text-fg">Upgrade to LeadsForceGen Pro</h1>
-      <p className="text-muted text-sm mt-2">Unlimited* leads, CSV export and full AI outreach — $19/mo{methods?.razorpay ? " (₹1,499 via Razorpay)" : ""}. *fair-use 2,000/day.</p>
+      <p className="text-muted text-sm mt-2">Unlimited* leads, CSV export and full AI outreach — $19/mo{methods?.razorpay ? " (₹1,499 via Razorpay)" : ""}. *fair use.</p>
       <div className="mt-6 space-y-3">
         {methods === null && <p className="text-sm text-muted" role="status">Loading payment options…</p>}
         {methods?.lemon && <button disabled={busy} onClick={payLemon} className="btn-primary btn-block">🌍 Pay worldwide — Card / PayPal / Apple Pay (Lemon Squeezy)</button>}

@@ -157,7 +157,7 @@ async function handlePost(req: Request) {
 
   // Server-side quota (active when Supabase is configured): the caller's
   // plan and daily limit come from Postgres, never from the client.
-  let quotaUser: { id: string; remaining: number } | null = null;
+  let quotaUser: { id: string; remaining: number; plan: string } | null = null;
   if (quotaConfigured()) {
     const user = await getAuthUser(req);
     if (!user) {
@@ -171,7 +171,7 @@ async function handlePost(req: Request) {
         { status: 429 },
       );
     }
-    quotaUser = { id: user.id, remaining: usage.remaining };
+    quotaUser = { id: user.id, remaining: usage.remaining, plan: usage.plan };
   }
 
   // Source order: (1) Search Everywhere engine — real businesses from
@@ -186,7 +186,11 @@ async function handlePost(req: Request) {
   // Whole-search cache (6h): the same niche+city search is the most
   // common repeat request — a hit answers in well under a second instead
   // of re-running the map query and website crawl. Quota still applies.
-  const limitWanted = Math.min(want, 30);
+  // Per-search result size: Pro pulls big batches (up to 500) straight
+  // from the stored database; Free stays small. Daily Pro volume is
+  // effectively unlimited (fair-use ceiling in lib/types).
+  const perSearchCap = quotaUser?.plan === "pro" ? 500 : 30;
+  const limitWanted = Math.min(want, perSearchCap);
   const searchKey = `search:v5:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
   let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
   const fromCache = Boolean(engine);

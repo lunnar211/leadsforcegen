@@ -23,7 +23,7 @@ export default function Home() {
           <Link href="/signup" className="btn-primary">Get started free</Link>
           <Link href="/dashboard" className="btn-ghost">Open dashboard</Link>
         </div>
-        <p className="mt-3 text-xs text-muted">Free: 30 leads/day · No credit card required · *fair-use 2,000/day</p>
+        <p className="mt-3 text-xs text-muted">Free: 30 leads/day · No credit card required · Pro: unlimited* leads</p>
       </section>
 
       <section className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Features">
@@ -48,7 +48,7 @@ export default function Home() {
           <h2 className="text-xl font-bold text-fg">Pro</h2>
           <p className="mt-2 text-3xl font-extrabold text-fg">$19<span className="text-base font-medium text-muted">/mo</span></p>
           <ul className="mt-4 space-y-2 text-sm text-muted">
-            <li>✓ Unlimited* leads (fair-use 2,000/day)</li><li>✓ CSV export</li><li>✓ Full AI outreach generator</li><li>✓ Priority AI model</li><li>✓ Secure worldwide checkout</li>
+            <li>✓ Unlimited* leads (fair use)</li><li>✓ CSV export</li><li>✓ Full AI outreach generator</li><li>✓ Priority AI model</li><li>✓ Secure worldwide checkout</li>
           </ul>
           <Link href="/checkout" className="btn-primary btn-block mt-6">Upgrade to Pro</Link>
         </div>

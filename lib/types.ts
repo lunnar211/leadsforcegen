@@ -23,7 +23,7 @@ export type Lead = {
 export type Plan = "free" | "pro";
 
 export const FREE_DAILY_LEAD_LIMIT = 30;
-export const PRO_DAILY_LEAD_LIMIT = 2000;
+export const PRO_DAILY_LEAD_LIMIT = 100000; // marketed as Unlimited* (fair use)
 
 export function sampleLeads(input: {
   industry?: string;
