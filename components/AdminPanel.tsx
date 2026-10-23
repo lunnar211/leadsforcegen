@@ -1,9 +1,10 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import ManualPaymentsQueue from "@/components/ManualPaymentsQueue";
+import AdminMoney from "@/components/AdminMoney";
+import AdminHealth from "@/components/AdminHealth";
 
 type UserRow = { id: string; email: string; plan: string; role: string; is_active: boolean; created_at: string };
-type PaymentRow = { id: string; email: string | null; gateway: string; amount: number; currency: string; status: string; method: string | null; months: number | null; created_at: string };
 
 const DEMO_USERS: UserRow[] = [
   { id: "demo-1", email: "demo-user-1@example.com", plan: "free", role: "user", is_active: true, created_at: "2026-10-01" },
@@ -22,9 +23,9 @@ export default function AdminPanel() {
   const [users, setUsers] = useState<UserRow[]>(DEMO_USERS);
   const [live, setLive] = useState(false);
   const [activity, setActivity] = useState<string[]>(DEMO_ACTIVITY);
-  const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [stats, setStats] = useState({ users: DEMO_USERS.length, searches: 42, leads: 318, pro: 1 });
   const [msg, setMsg] = useState("");
+  const [userQuery, setUserQuery] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -34,7 +35,6 @@ export default function AdminPanel() {
         setUsers(d.data.users || []);
         setStats(d.data.stats);
         setActivity(d.data.activity?.length ? d.data.activity : ["No activity recorded yet."]);
-        setPayments(d.data.payments || []);
         setLive(true);
       }
     } catch { /* keep demo fallback */ }
@@ -74,10 +74,15 @@ export default function AdminPanel() {
       </div>
 
       <h2 className="font-semibold text-fg mt-8">Users {live ? "" : "(demo)"}</h2>
+      <input
+        type="search" value={userQuery} onChange={(e) => setUserQuery(e.target.value)}
+        placeholder="Search users by email…" aria-label="Search users by email"
+        className="input mt-3 max-w-sm"
+      />
       <div className="card mt-3 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-surface text-left text-muted"><tr><th className="p-3">Email</th><th className="p-3">Plan</th><th className="p-3">Role</th><th className="p-3">Status</th><th className="p-3">Joined</th><th className="p-3">Controls</th></tr></thead>
-          <tbody>{users.map(u => (
+          <tbody>{users.filter((u) => !userQuery.trim() || u.email.toLowerCase().includes(userQuery.trim().toLowerCase())).map(u => (
             <tr key={u.id} className="border-t border-border">
               <td className="p-3 text-fg break-all">{u.email}</td><td className="p-3">{u.plan}</td><td className="p-3">{u.role}</td>
               <td className="p-3">{u.is_active ? "Active" : "Banned / inactive"}</td><td className="p-3">{String(u.created_at).slice(0, 10)}</td>
@@ -93,40 +98,12 @@ export default function AdminPanel() {
 
       <ManualPaymentsQueue />
 
-      <h2 className="font-semibold text-fg mt-8">Payments — all gateways {live ? "" : "(connect Supabase for live data)"}</h2>
-      <p className="mt-1 text-sm text-muted">
-        A payment shows <b className="text-fg">captured</b> only after server-side verification (gateway signature/webhook, or your approval for manual proofs).
-        Browser success messages alone never change a payment or a plan.
-      </p>
-      <div className="card mt-3 overflow-x-auto">
-        {payments.length === 0 ? (
-          <p className="p-5 text-sm text-muted">No payments recorded yet. Verified payments from Lemon Squeezy, Stripe, Razorpay and approved manual proofs will appear here.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-surface text-left text-muted"><tr><th className="p-3">Date</th><th className="p-3">Email</th><th className="p-3">Gateway</th><th className="p-3">Amount</th><th className="p-3">Status</th></tr></thead>
-            <tbody>{payments.map(p => (
-              <tr key={p.id} className="border-t border-border">
-                <td className="p-3 whitespace-nowrap">{String(p.created_at).slice(0, 16).replace("T", " ")}</td>
-                <td className="p-3 text-fg break-all">{p.email || "—"}</td>
-                <td className="p-3">{p.gateway}{p.method ? ` · ${p.method}` : ""}</td>
-                <td className="p-3 whitespace-nowrap">{p.currency} {Number(p.amount).toLocaleString()}</td>
-                <td className="p-3">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${p.status === "captured" ? "bg-success-bg text-success" : p.status === "pending" ? "bg-warning-bg text-warning" : "bg-danger-bg text-danger"}`}>
-                    {p.status}
-                  </span>
-                </td>
-              </tr>))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <AdminMoney />
 
-      <div className="grid md:grid-cols-2 gap-4 mt-8">
-        <div className="card p-5"><h3 className="font-semibold text-fg">Activity log</h3>
-          <ul className="text-sm text-muted mt-3 space-y-2">{activity.map((a, i) => <li key={i}>• {a}</li>)}</ul></div>
-        <div className="card p-5"><h3 className="font-semibold text-fg">Subscriptions overview</h3>
-          <p className="text-sm text-muted mt-3">Pro subscribers: {stats.pro} · Free users: {Math.max(0, stats.users - stats.pro)}<br />Payments upgrade a plan only after server verification (see the payments table above).<br />Est. MRR (Pro $19): ${stats.pro * 19}/mo</p></div>
-      </div>
+      <div className="card p-5 mt-10"><h3 className="font-semibold text-fg">Activity log</h3>
+        <ul className="text-sm text-muted mt-3 space-y-2">{activity.map((a, i) => <li key={i}>• {a}</li>)}</ul></div>
+
+      <AdminHealth />
     </div>
   );
 }

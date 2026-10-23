@@ -53,16 +53,32 @@ export async function POST(req: Request) {
   const admin = serviceClient();
   if (!admin) return NextResponse.json({ ok: false, error: "Supabase is not configured." }, { status: 503 });
   const body = (await req.json().catch(() => ({}))) as { id?: string; action?: string };
-  if (!body.id || (body.action !== "approve" && body.action !== "reject")) {
-    return NextResponse.json({ ok: false, error: "Provide id and action (approve|reject)." }, { status: 400 });
+  if (!body.id || (body.action !== "approve" && body.action !== "reject" && body.action !== "refund")) {
+    return NextResponse.json({ ok: false, error: "Provide id and action (approve|reject|refund)." }, { status: 400 });
   }
   const { data: payment, error: readErr } = await admin
     .from("payments")
-    .select("id, user_id, email, months, status")
+    .select("id, user_id, email, months, status, amount, currency, method")
     .eq("id", body.id)
     .eq("gateway", "manual")
     .single();
   if (readErr || !payment) return NextResponse.json({ ok: false, error: "Payment not found." }, { status: 404 });
+
+  if (body.action === "refund") {
+    // Bookkeeping for money the owner returns out-of-band (eSewa/bank —
+    // manual payments have no gateway API to refund through). This only
+    // records the refund; the owner sends the money back himself.
+    if (payment.status !== "captured") {
+      return NextResponse.json({ ok: false, error: `Only a captured payment can be marked refunded (this one is ${payment.status}).` }, { status: 409 });
+    }
+    await admin.from("payments").update({ status: "refunded" }).eq("id", body.id);
+    await admin.from("activity_log").insert({
+      user_id: payment.user_id,
+      message: `Admin marked manual payment refunded — ${payment.currency} ${Number(payment.amount).toLocaleString()} to ${payment.email || payment.user_id || "unknown buyer"} (money returned by owner via ${payment.method || "manual method"})`,
+    });
+    return NextResponse.json({ ok: true, data: { status: "refunded" } });
+  }
+
   if (payment.status !== "pending") {
     return NextResponse.json({ ok: false, error: `Already ${payment.status}.` }, { status: 409 });
   }
