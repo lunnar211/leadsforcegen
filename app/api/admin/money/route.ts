@@ -16,12 +16,28 @@ function addTo(map: Record<string, number>, currency: string, amount: number) {
   map[currency] = (map[currency] || 0) + amount;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await requireAdminSession())) {
     return NextResponse.json({ ok: false, error: "Admin session required." }, { status: 403 });
   }
   const admin = serviceClient();
   if (!admin) return NextResponse.json({ ok: false, error: "Supabase is not configured." }, { status: 503 });
+
+  // Owner filters: status, gateway, currency (= market/country of the
+  // money: NPR is Nepal, USD/EUR/etc. arrive via the worldwide gateway),
+  // buyer email text, and a created-at date range. Aggregates and the
+  // ledger are computed over the FILTERED set so the owner can slice
+  // revenue country-wise, gateway-wise and user-wise.
+  const sp = new URL(req.url).searchParams;
+  const f = {
+    status: (sp.get("status") || "").trim(),
+    gateway: (sp.get("gateway") || "").trim(),
+    currency: (sp.get("currency") || "").trim().toUpperCase(),
+    q: (sp.get("q") || "").trim().toLowerCase(),
+    from: (sp.get("from") || "").trim(),
+    to: (sp.get("to") || "").trim(),
+  };
+  const filtersApplied = Boolean(f.status || f.gateway || f.currency || f.q || f.from || f.to);
 
   const { data: payData, error } = await admin
     .from("payments")
@@ -29,7 +45,17 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(1000);
   if (error) return NextResponse.json({ ok: false, error: "Could not load payments." }, { status: 502 });
-  const payments = (payData || []) as PaymentRow[];
+  const allPayments = (payData || []) as PaymentRow[];
+  const payments = allPayments.filter((p) => {
+    if (f.status && p.status !== f.status) return false;
+    if (f.gateway && p.gateway !== f.gateway) return false;
+    if (f.currency && p.currency !== f.currency) return false;
+    if (f.q && !(p.email || "").toLowerCase().includes(f.q)) return false;
+    const day = String(p.created_at).slice(0, 10);
+    if (f.from && day < f.from) return false;
+    if (f.to && day > f.to) return false;
+    return true;
+  });
 
   const now = new Date();
   const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
@@ -75,12 +101,14 @@ export async function GET() {
     const { data: profs } = await admin.from("profiles").select("id, email").in("id", subUserIds);
     for (const pr of profs || []) emailById.set(pr.id as string, (pr.email as string) || "");
   }
-  const subscriptions = (subData || []).map((s) => ({
+  let subscriptions = (subData || []).map((s) => ({
     email: (s.user_id && emailById.get(s.user_id)) || "—",
     plan: s.plan as string,
     gateway: (s.gateway as string) || "—",
     current_period_end: s.current_period_end as string | null,
   }));
+  if (f.q) subscriptions = subscriptions.filter((s) => s.email.toLowerCase().includes(f.q));
+  if (f.gateway) subscriptions = subscriptions.filter((s) => s.gateway === f.gateway);
 
   return NextResponse.json({
     ok: true,
@@ -90,7 +118,10 @@ export async function GET() {
       capturedCount, rejectedCount,
       byGateway: [...byGatewayMap.values()],
       subscriptions,
-      payments: payments.slice(0, 50),
+      payments: payments.slice(0, 100),
+      filtersApplied,
+      gateways: [...new Set(allPayments.map((p) => p.gateway))].sort(),
+      currencies: [...new Set(allPayments.map((p) => p.currency))].sort(),
     },
   });
 }

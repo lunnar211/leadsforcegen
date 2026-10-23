@@ -5,6 +5,7 @@ website searches return complete leads instantly:
 
 | Workflow file | Schedule | What it does |
 |---|---|---|
+| `search-cache-warmer.json` | Daily, 03:30 | Calls the website's secret-guarded `/api/internal/warm` route to pre-run the most common searches into the 6h results cache — the first customer of the day gets instant results. Needs `WARM_SECRET` in the n8n environment, matching the website's Vercel env var. |
 | `lead-db-monthly-refresh.json` | 5th of month, 05:00 | Downloads the new Overture Maps release and upserts AE + NP + US metros straight into the Supabase `places` table (`scripts/refresh_places.py`), then sends a Telegram report. |
 | `leads-generation.json` | On request (webhook) | The bridge: POST a niche + city → `scripts/generate_leads.py` pulls from the database (or the local dataset files) → writes ready-to-send Excel + CSV lead files to `out/` → Telegram report + webhook reply. |
 | `nightly-email-enrichment.json` | Daily, 02:00 | Visits the OWN websites of businesses that have a website but no email, extracts emails they publish (mailto / schema.org JSON-LD), and fills them in (`scripts/enrich_emails.py`) — so searches come back with emails already attached, no live crawling wait. Then a Telegram report. |
