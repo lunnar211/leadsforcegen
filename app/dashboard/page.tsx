@@ -12,9 +12,47 @@ type Toast = { kind: "success" | "error"; text: string } | null;
 // Plan and usage come ONLY from the server (/api/usage, backed by Supabase
 // + the consume_daily_quota Postgres function). This page displays them;
 // it never decides them. Search history below is device-local display data.
+// Guest view: NO search UI at all — just the product overview and the
+// sign-in gate. Searching is a members feature; the server already 401s
+// anonymous searches, and since this change the page never even renders
+// the form for a signed-out visitor (no flash of it while the session
+// check runs either — the page shows a loading card until auth is known).
+function GuestOverview() {
+  const points = [
+    "1,000,000+ verified businesses — UAE · Nepal · New York · Seattle, any country added on request",
+    "Phone, email, website and social links for every lead, each with its source",
+    "Free plan: 30 leads every day · Pro: unlimited* searches + Excel export",
+  ];
+  return (
+    <section className="card mt-6 p-6 sm:p-8" aria-label="Sign in to search leads">
+      <span className="inline-flex items-center justify-center rounded-[10px] p-[9px] text-white shadow-md" style={{ background: "linear-gradient(135deg, var(--accent), var(--cta))" }} aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+      </span>
+      <h2 className="mt-4 text-2xl font-extrabold tracking-tight text-fg">Lead search is for members</h2>
+      <p className="mt-2 max-w-[560px] text-sm leading-relaxed text-muted">
+        You are browsing as a guest, so this page shows the overview only. Sign in — free — and the full search unlocks instantly: real businesses with contact details, scored and ready to export.
+      </p>
+      <ul className="mt-5 space-y-2.5">
+        {points.map((p) => (
+          <li key={p} className="flex items-start gap-2.5 text-sm text-fg">
+            <svg className="mt-0.5 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11" /></svg>
+            <span>{p}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Link href="/login" className="btn-primary px-6">Log in</Link>
+        <Link href="/signup" className="btn-cta px-6">Create free account</Link>
+      </div>
+      <p className="mt-4 text-xs text-muted">No card needed for the free plan. Your searches and exports stay private to your account.</p>
+    </section>
+  );
+}
+
 export default function Dashboard() {
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [signedOut, setSignedOut] = useState(false);
+  const [authKnown, setAuthKnown] = useState(false);
   const [form, setForm] = useState({ leadType: "B2B companies", industry: "", location: "", size: "11-50", keywords: "" });
   const [fieldErrors, setFieldErrors] = useState<{ industry?: string; location?: string }>({});
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -61,6 +99,7 @@ export default function Dashboard() {
       if (res.status === 401) { setSignedOut(true); return; }
       if (d.data) { setSignedOut(false); setUsage(d.data as UsageState); }
     } catch { /* leave usage null; UI shows a loading state */ }
+    finally { setAuthKnown(true); }
   }, [authHeaders]);
 
   useEffect(() => {
@@ -262,6 +301,13 @@ export default function Dashboard() {
       <h1 className="text-3xl font-bold text-fg">Dashboard</h1>
       <p className="mt-1 text-sm text-muted">Find real businesses from public sources, scored and ready to verify.</p>
 
+      {!authKnown ? (
+        <div className="card mt-6 p-8 text-center" role="status">
+          <p className="text-sm text-muted">Loading your dashboard…</p>
+        </div>
+      ) : signedOut ? (
+        <GuestOverview />
+      ) : (
       <div className="mt-6 grid gap-4 lg:grid-cols-[380px_1fr] lg:items-start">
         {/* Left column: quota card + search form */}
         <div className="space-y-4 lg:sticky lg:top-24">
@@ -512,6 +558,7 @@ export default function Dashboard() {
           </section>
         </div>
       </div>
+      )}
 
       {/* Toast */}
       {toast && (
