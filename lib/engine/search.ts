@@ -3,6 +3,7 @@ import { resolveMx } from "node:dns/promises";
 import { safeFetch } from "@/lib/safe-fetch";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { queryPlaces } from "@/lib/engine/placesDb";
+import { discoverViaCse } from "@/lib/engine/cse";
 import type { Lead } from "@/lib/types";
 
 // Search Everywhere — phase 2 (public sources only, per policy):
@@ -520,6 +521,32 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         });
       }
     } catch { /* listings DB unavailable — map sources still serve */ }
+
+    // Discovery booster (env-gated): Google Programmable Search with
+    // operator queries finds businesses the map databases miss. These
+    // arrive with only a name + website — enrichment below reads their
+    // own pages and verifies contacts exactly like every other source,
+    // so a CSE candidate with no reachable site simply scores low.
+    try {
+      const cseRows = await discoverViaCse(niche, location, limit);
+      const seenNames = new Set(candidates.map((c) => c.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+      for (const r of cseRows) {
+        const key = r.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const dom = domainOf(r.website);
+        if (!key || seenNames.has(key) || (dom && seenDomains.has(dom))) continue;
+        seenNames.add(key);
+        if (dom) seenDomains.add(dom);
+        candidates.push({
+          el: { id: 0, type: "cse" },
+          name: r.name,
+          website: r.website,
+          precise: false,
+          distKm: 999,
+          sourceUrl: r.sourceUrl,
+          sourceName: "Google Programmable Search",
+        });
+      }
+    } catch { /* CSE unavailable — other sources still serve */ }
 
     // Rank before spending crawl budget: tag-precise businesses first,
     // then nearest to the searched center. Enrichment and final ordering

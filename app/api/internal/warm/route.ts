@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     try {
       const engine = await searchEverywhere(s.niche, s.location, s.limit);
       if (engine.leads.length > 0) {
-        const key = `search:v5:${normalizeNiche(s.niche)}|${s.location.toLowerCase().trim()}|${s.limit}`;
+        const key = `search:v6:${normalizeNiche(s.niche)}|${s.location.toLowerCase().trim()}|${s.limit}`;
         await cacheSet(key, engine);
         warmed.push({ niche: s.niche, location: s.location, leads: engine.leads.length });
       }
