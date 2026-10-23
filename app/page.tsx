@@ -126,7 +126,7 @@ export default function Home() {
         <section className="text-center">
           <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold text-fg shadow-sm">
             <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
-            224,000+ verified businesses live — UAE · Nepal · US cities loading now
+            1,000,000+ verified businesses live — UAE · Nepal · New York · Seattle
           </p>
           <h1 className="mx-auto mt-7 max-w-3xl text-[2.6rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-fg sm:text-6xl lg:text-[4.2rem]">
             Find <span className="text-accent-text">real business leads</span>, anywhere.
