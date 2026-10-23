@@ -47,7 +47,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, code: "QUOTA_EXCEEDED", error: "Daily limit reached. Upgrade to Pro for more." }, { status: 429 });
       }
       const usage = await getUsage(userId);
-      return NextResponse.json({ ok: true, leads: [lead], source: "website", note: "Extracted from the business's own website. Verify before outreach.", usage });
+      return NextResponse.json({ ok: true, leads: [lead], source: "website", note: "Extracted from the business's own website. Verify before outreach.", usage: { configured: true, ...usage } });
     }
     return NextResponse.json({ ok: true, leads: [lead], source: "website", note: "Extracted from the business's own website. Verify before outreach." });
   } catch {

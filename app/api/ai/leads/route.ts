@@ -208,7 +208,7 @@ async function handlePost(req: Request) {
         return NextResponse.json({ ok: false, code: "QUOTA_EXCEEDED", error: "Daily limit reached. Upgrade to Pro for more." }, { status: 429 });
       }
       const usage = await getUsage(quotaUser.id);
-      return NextResponse.json({ ok: true, leads: engine.leads, source: "search-everywhere", note, usage });
+      return NextResponse.json({ ok: true, leads: engine.leads, source: "search-everywhere", note, usage: { configured: true, ...usage } });
     }
     return NextResponse.json({ leads: engine.leads, source: "search-everywhere", note });
   }
@@ -240,7 +240,7 @@ async function handlePost(req: Request) {
     // Honest empty result: no quota consumed, no demo data.
     if (quotaUser) {
       const usage = await getUsage(quotaUser.id);
-      return NextResponse.json({ ok: true, leads: [], source, note, usage });
+      return NextResponse.json({ ok: true, leads: [], source, note, usage: { configured: true, ...usage } });
     }
     return NextResponse.json({ leads: [], source, note });
   }
@@ -255,7 +255,7 @@ async function handlePost(req: Request) {
       );
     }
     const usage = await getUsage(quotaUser.id);
-    return NextResponse.json({ ok: true, leads, source, note, usage });
+    return NextResponse.json({ ok: true, leads, source, note, usage: { configured: true, ...usage } });
   }
   return NextResponse.json({ leads, source, note });
 }
