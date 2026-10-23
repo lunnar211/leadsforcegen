@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ensureProfile } from "@/lib/profile";
+import { nextRouteAfterAuth } from "@/lib/mfa";
 
 // OAuth return page. The Supabase browser client (PKCE flow,
 // detectSessionInUrl) exchanges the ?code= parameter for a session
@@ -22,7 +23,7 @@ function CallbackInner() {
       if (data.session) {
         clearInterval(timer);
         await ensureProfile();
-        router.push("/dashboard");
+        router.push(await nextRouteAfterAuth());
         router.refresh();
       } else if (tries >= 16) {
         clearInterval(timer);

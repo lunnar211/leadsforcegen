@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { ensureProfile } from "@/lib/profile";
+import { nextRouteAfterAuth } from "@/lib/mfa";
 import GoogleAuthButton from "@/components/GoogleAuthButton";
 
 function friendlyError(raw: string): { text: string; unconfirmed: boolean } {
@@ -64,7 +65,7 @@ export default function Login() {
         return;
       }
       await ensureProfile();
-      router.push("/dashboard");
+      router.push(await nextRouteAfterAuth());
       router.refresh();
     } finally {
       setBusy(false);

@@ -1,9 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type Lead } from "@/lib/types";
 import { supabase } from "@/lib/supabaseClient";
 import SupportCard from "@/components/SupportCard";
+import MfaCard from "@/components/MfaCard";
 
 type HistoryItem = { at: string; industry: string; location: string; count: number };
 type UsageState = { configured: boolean; plan: string; used: number; limit: number; remaining: number };
@@ -105,6 +107,20 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => { await loadUsage(); })();
   }, [loadUsage]);
+
+  // MFA enforcement: a session that still owes an authenticator
+  // challenge (AAL1 while a verified factor exists → next level AAL2)
+  // is bounced to /auth/mfa before it can use the console.
+  const router = useRouter();
+  useEffect(() => {
+    (async () => {
+      if (!supabase) return;
+      try {
+        const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (data && data.currentLevel === "aal1" && data.nextLevel === "aal2") router.replace("/auth/mfa");
+      } catch { /* best-effort client guard; server APIs verify the JWT on every call regardless */ }
+    })();
+  }, [router]);
 
   const isPro = usage?.plan === "pro";
 
@@ -536,6 +552,8 @@ export default function Dashboard() {
           )}
 
           <SupportCard />
+
+          <MfaCard />
 
           <section className="mt-8" aria-label="Search history">
             <h2 className="text-lg font-semibold text-fg">Search history <span className="text-sm font-normal text-muted">(this device)</span></h2>
