@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendTelegram } from "@/lib/telegram";
 import { reviewManualPayment } from "@/lib/manualPayments";
+import { queryPlaces } from "@/lib/engine/placesDb";
 
 export const maxDuration = 60;
 
@@ -26,7 +27,61 @@ const HELP = [
   "/reject <id> — reject a pending payment",
   "/users — latest signups",
   "/diag — quick database health (full X-ray is in the admin panel)",
+  "/leads <niche> <city> — instant top leads from the database, same data as the website (e.g. /leads dentist dubai)",
 ].join("\n");
+
+// City centers for /leads (the website search geocodes any place on
+// Earth; the bot answers instantly for the cities the stored database
+// covers and says so honestly for the rest).
+const CITY_CENTERS: Record<string, { lat: number; lon: number; label: string }> = {
+  dubai: { lat: 25.2048, lon: 55.2708, label: "Dubai" },
+  "abu dhabi": { lat: 24.4539, lon: 54.3773, label: "Abu Dhabi" },
+  kathmandu: { lat: 27.7103, lon: 85.3222, label: "Kathmandu" },
+  pokhara: { lat: 28.2096, lon: 83.9856, label: "Pokhara" },
+  "new york": { lat: 40.7128, lon: -74.006, label: "New York" },
+  nyc: { lat: 40.7128, lon: -74.006, label: "New York" },
+  "los angeles": { lat: 34.0522, lon: -118.2437, label: "Los Angeles" },
+  la: { lat: 34.0522, lon: -118.2437, label: "Los Angeles" },
+  chicago: { lat: 41.8781, lon: -87.6298, label: "Chicago" },
+  houston: { lat: 29.7604, lon: -95.3698, label: "Houston" },
+  miami: { lat: 25.7617, lon: -80.1918, label: "Miami" },
+};
+
+function normalizeBotNiche(raw: string): string {
+  const n = raw.toLowerCase().trim();
+  const plurals: Record<string, string> = {
+    dentists: "dentist", restaurants: "restaurant", cafes: "cafe", hotels: "hotel",
+    pharmacies: "pharmacy", clinics: "clinic", gyms: "gym", salons: "salon",
+    plumbers: "plumber", electricians: "electrician", lawyers: "lawyer",
+  };
+  return plurals[n] || n;
+}
+
+async function leadsText(nicheRaw: string, cityRaw: string): Promise<string> {
+  const city = CITY_CENTERS[cityRaw.toLowerCase().trim()];
+  if (!city) {
+    return `The bot answers instantly for: ${[...new Set(Object.values(CITY_CENTERS).map((c) => c.label))].join(", ")}.\nFor any other city, use the website search — it geocodes the whole world: leadsforcegen.vercel.app`;
+  }
+  const niche = normalizeBotNiche(nicheRaw);
+  const rows = await queryPlaces(niche, [nicheRaw], city.lat, city.lon, 20, 8);
+  if (!rows.length) {
+    return `No stored leads for "${nicheRaw}" in ${city.label} yet — that category/city is still being loaded. The website search also checks live sources: leadsforcegen.vercel.app`;
+  }
+  const withEmail = rows.filter((r) => r.email).length;
+  const withPhone = rows.filter((r) => r.phone).length;
+  const lines = rows.map((r, i) => {
+    const contact = [r.phone ? `📞 ${r.phone}` : "", r.email ? `✉️ ${r.email}` : ""].filter(Boolean).join(" · ");
+    return `${i + 1}. ${r.name}${contact ? `\n   ${contact}` : ""}${r.website ? `\n   🌐 ${r.website}` : ""}`;
+  });
+  return [
+    `🎯 Top ${rows.length} ${niche} leads — ${city.label} (stored database, same as the website)`,
+    `Contacts in this batch: ${withPhone}/${rows.length} phone · ${withEmail}/${rows.length} email`,
+    "",
+    ...lines,
+    "",
+    "Full search + Excel/CSV export: leadsforcegen.vercel.app",
+  ].join("\n");
+}
 
 type Admin = NonNullable<ReturnType<typeof serviceClient>>;
 
@@ -143,6 +198,10 @@ export async function POST(req: Request) {
     reply = await usersText(admin);
   } else if (cmd === "/diag") {
     reply = await diagText(admin);
+  } else if (cmd === "/leads") {
+    reply = args[0] && args[1]
+      ? await leadsText(args[0], args.slice(1).join(" "))
+      : "Usage: /leads <niche> <city> — e.g. /leads dentist dubai or /leads restaurant kathmandu";
   } else if (cmd === "/approve" || cmd === "/reject") {
     reply = args[0] ? await reviewByShortId(admin, args[0], cmd === "/approve" ? "approve" : "reject") : `Usage: ${cmd} <id> — /payments shows the ids.`;
   } else if (cmd.startsWith("/")) {
