@@ -1,5 +1,18 @@
 import "server-only";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "@/lib/quota";
+
+// Second stored-data window (2026-10-25, owner decision: free only).
+// The main free project is nearly full, so city packs live in a second
+// free Supabase project in the same org ("LeadForge-Packs"). Env-gated:
+// when the vars are absent this client is null and behavior is exactly
+// today's single-project path. Server-only vars, never NEXT_PUBLIC_.
+function packsClient(): SupabaseClient | null {
+  const url = process.env.SUPABASE_PACKS_URL;
+  const key = process.env.SUPABASE_PACKS_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
 
 // Stored business listings: Overture Maps Places, ingested monthly into
 // the Supabase `places` table by scripts/ingest_overture.py. Overture's
@@ -75,7 +88,8 @@ export function matchNicheByTokens(tokens: string[]): string | null {
   return bestScore > 0 ? best : null;
 }
 
-export async function queryPlaces(
+async function queryOne(
+  sb: SupabaseClient,
   niche: string,
   terms: string[],
   lat: number,
@@ -83,8 +97,6 @@ export async function queryPlaces(
   radiusKm: number,
   limit: number,
 ): Promise<PlaceRow[]> {
-  const sb = serviceClient();
-  if (!sb) return [];
   const dLat = radiusKm / 111;
   const dLon = radiusKm / (111 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
   try {
@@ -127,4 +139,34 @@ export async function queryPlaces(
   } catch {
     return [];
   }
+}
+
+export async function queryPlaces(
+  niche: string,
+  terms: string[],
+  lat: number,
+  lon: number,
+  radiusKm: number,
+  limit: number,
+): Promise<PlaceRow[]> {
+  // Fan-out: main project + packs project in parallel, merged by id.
+  // A failing client returns [] from queryOne, so one project's outage
+  // can never lose the other project's rows. With no packs env vars
+  // this is exactly the old single-client path.
+  const clients = [serviceClient(), packsClient()].filter(
+    (c): c is SupabaseClient => Boolean(c),
+  );
+  if (!clients.length) return [];
+  const results = await Promise.all(
+    clients.map((c) => queryOne(c, niche, terms, lat, lon, radiusKm, limit)),
+  );
+  const seen = new Set<string>();
+  const merged: PlaceRow[] = [];
+  for (const rows of results)
+    for (const r of rows)
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        merged.push(r);
+      }
+  return merged;
 }
