@@ -107,7 +107,19 @@ def main() -> None:
             f"AND {box_expr(CITIES[s][1], CITIES[s][2], CITIES[s][3])[3]:.4f} THEN '{s}'"
             for s in wanted
         )
-        rows = con.execute(f"SELECT CASE {cases} ELSE NULL END AS city, COUNT(*) FROM ({base}) GROUP BY 1 ORDER BY 2 DESC").fetchall()
+        # Long S3 scans through the sandbox proxy occasionally drop
+        # mid-stream ("Failure when receiving data from the peer") —
+        # retry the whole scan rather than failing the run.
+        rows = None
+        for attempt in range(3):
+            try:
+                rows = con.execute(f"SELECT CASE {cases} ELSE NULL END AS city, COUNT(*) FROM ({base}) GROUP BY 1 ORDER BY 2 DESC").fetchall()
+                break
+            except Exception as e:
+                print(f"counts scan attempt {attempt + 1} failed: {e}")
+                if attempt == 2:
+                    raise
+                import time as _t; _t.sleep(20)
         for city, n in rows:
             if city:
                 print(f"{city}: {n} rows")
