@@ -55,13 +55,15 @@ export default function Dashboard() {
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [signedOut, setSignedOut] = useState(false);
   const [authKnown, setAuthKnown] = useState(false);
-  const [form, setForm] = useState({ leadType: "B2B companies", industry: "", location: "", size: "11-50", keywords: "" });
+  const [form, setForm] = useState({ industry: "", location: "", size: "11-50", keywords: "" });
   const [fieldErrors, setFieldErrors] = useState<{ industry?: string; location?: string }>({});
   const [leads, setLeads] = useState<Lead[]>([]);
   const [note, setNote] = useState(""); const [source, setSource] = useState("");
   const [searchError, setSearchError] = useState("");
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [filter, setFilter] = useState<"all" | "email" | "phone" | "website">("all");
   const [siteUrl, setSiteUrl] = useState("");
   const [scraping, setScraping] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
@@ -124,16 +126,25 @@ export default function Dashboard() {
 
   const isPro = usage?.plan === "pro";
 
-  async function runSearch() {
+  // override lets one-tap history re-runs bypass setState timing: the
+  // request uses the clicked values immediately, not the next render.
+  async function runSearch(override?: { industry: string; location: string }) {
+    const industry = (override?.industry ?? form.industry).trim();
+    const location = (override?.location ?? form.location).trim();
     const errs: typeof fieldErrors = {};
-    if (!form.industry.trim() && !form.leadType.trim()) errs.industry = "Enter an industry or lead type — e.g. dentists.";
-    if (!form.location.trim()) errs.location = "Enter a location — e.g. Dubai or Kathmandu.";
+    if (!industry) errs.industry = "Enter what you are looking for — e.g. dentists, car owners, restaurants.";
+    if (!location) errs.location = "Enter a location — e.g. Dubai or Kathmandu.";
     setFieldErrors(errs);
     if (Object.keys(errs).length) return;
 
     setLoading(true);
+    setElapsed(0);
     setSearchError("");
     setSearched(false);
+    // Honest progress labels: the stages describe what the server may be
+    // doing at this elapsed time (database first, then maps/web, then
+    // reading business websites) — never a fake completion percentage.
+    const tick = setInterval(() => setElapsed((s) => s + 1), 1000);
     // The server budget is 60s; give the request a little slack beyond it
     // so real server errors surface instead of a client-side cutoff.
     const ctrl = new AbortController();
@@ -142,7 +153,7 @@ export default function Dashboard() {
       const res = await fetch("/api/ai/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, industry, location }),
         signal: ctrl.signal,
       });
       const data = await res.json().catch(() => ({}));
@@ -157,14 +168,14 @@ export default function Dashboard() {
       setLeads(results); setNote(data.note || ""); setSource(data.source || "");
       setSearched(true);
       if (data.usage) setUsage(data.usage); else await loadUsage();
-      const item = { at: new Date().toISOString(), industry: form.industry, location: form.location, count: results.length };
+      const item = { at: new Date().toISOString(), industry, location, count: results.length };
       const hist = [item, ...history].slice(0, 20); setHistory(hist); localStorage.setItem("leadsforcegen_history", JSON.stringify(hist));
       showToast("success", results.length ? `Found ${results.length} leads.` : "Search finished — no matches this time.");
       if (supabase) {
         try {
           const { data: u } = await supabase.auth.getUser();
           if (u.user) {
-            await supabase.from("searches").insert({ user_id: u.user.id, industry: form.industry, location: form.location, keywords: form.keywords, result_count: results.length });
+            await supabase.from("searches").insert({ user_id: u.user.id, industry, location, keywords: form.keywords, result_count: results.length });
             await supabase.from("leads").insert(results.map(l => ({ user_id: u.user.id, company: l.company, industry: l.industry, location: l.location, size: l.size, website: l.website, description: l.description, score: l.score })));
           }
         } catch {}
@@ -179,7 +190,7 @@ export default function Dashboard() {
           : "Couldn't reach the search service just now. Please try again in a moment.";
       setSearchError(msg);
       showToast("error", msg);
-    } finally { clearTimeout(killer); setLoading(false); }
+    } finally { clearTimeout(killer); clearInterval(tick); setElapsed(0); setLoading(false); }
   }
 
   function search(e: React.FormEvent) {
@@ -312,6 +323,13 @@ export default function Dashboard() {
 
   const usedPct = usage && usage.limit > 0 ? Math.min(100, Math.round((usage.used / usage.limit) * 100)) : 0;
 
+  // Result filters are a pure view over the leads already found — they
+  // never re-query and never cost quota.
+  const visibleLeads = filter === "all" ? leads
+    : filter === "email" ? leads.filter((l) => l.email)
+    : filter === "phone" ? leads.filter((l) => l.phone)
+    : leads.filter((l) => l.website);
+
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:py-10">
       <h1 className="text-3xl font-bold text-fg">Dashboard</h1>
@@ -370,19 +388,18 @@ export default function Dashboard() {
             )}
           </section>
 
-          {/* Search form */}
+          {/* Search form — one field for what the user wants, in their
+              own words (the old two-field "Lead type + Industry" split
+              confused people: both fed the same search). */}
           <form onSubmit={search} className="card space-y-4 p-5" aria-label="Lead search" noValidate>
             <div>
-              <label className="label" htmlFor="f-leadtype">Lead type</label>
-              <input id="f-leadtype" className="input" placeholder="e.g. Restaurants" value={form.leadType} onChange={set("leadType")} autoComplete="off" />
-            </div>
-            <div>
-              <label className="label" htmlFor="f-industry">Industry</label>
+              <label className="label" htmlFor="f-industry">What are you looking for?</label>
               <input
-                id="f-industry" className="input" placeholder="e.g. dentists" value={form.industry} onChange={set("industry")}
+                id="f-industry" className="input" placeholder="e.g. dentists, car owners, restaurants" value={form.industry} onChange={set("industry")}
                 autoComplete="off" aria-invalid={Boolean(fieldErrors.industry)}
                 aria-describedby={fieldErrors.industry ? "f-industry-error" : undefined}
               />
+              <p className="mt-1 text-xs text-muted">Type anything in plain words — the site understands what you mean.</p>
               {fieldErrors.industry && <p className="field-error" id="f-industry-error" role="alert">{fieldErrors.industry}</p>}
             </div>
             <div>
@@ -408,6 +425,15 @@ export default function Dashboard() {
               {loading && <span className="spinner" aria-hidden="true" />}
               {loading ? "Searching…" : "🔍 Find leads"}
             </button>
+            {loading && (
+              <p className="text-center text-xs text-muted" role="status">
+                {elapsed < 4
+                  ? "Searching the stored database…"
+                  : elapsed < 15
+                    ? "Checking maps and the web for more…"
+                    : "Reading business websites for contacts — this can take up to a minute…"}
+              </p>
+            )}
           </form>
 
           {/* One-click website scrape */}
@@ -467,7 +493,9 @@ export default function Dashboard() {
             {!loading && leads.length > 0 && (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <h2 className="text-lg font-semibold text-fg">{leads.length} leads</h2>
+                  <h2 className="text-lg font-semibold text-fg">
+                    {filter === "all" ? `${leads.length} leads` : `Showing ${visibleLeads.length} of ${leads.length} leads`}
+                  </h2>
                   <div className="flex flex-wrap gap-2" role="group" aria-label="Export leads">
                     <button onClick={exportCsv} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download CSV" : "CSV (Pro)"}</button>
                     <button onClick={() => void exportXlsx()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download Excel" : "Excel (Pro)"}</button>
@@ -475,8 +503,23 @@ export default function Dashboard() {
                     <button onClick={exportJson} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download JSON" : "JSON (Pro)"}</button>
                   </div>
                 </div>
+                <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filter results">
+                  {(["all", "email", "phone", "website"] as const).map((f) => (
+                    <button
+                      key={f} type="button" onClick={() => setFilter(f)} aria-pressed={filter === f}
+                      className={`${filter === f ? "btn-primary" : "btn-ghost"} !min-h-[44px] text-sm`}
+                    >
+                      {f === "all" ? "All leads" : f === "email" ? "Has email" : f === "phone" ? "Has phone" : "Has website"}
+                    </button>
+                  ))}
+                </div>
+                {visibleLeads.length === 0 ? (
+                  <p className="card mt-3 p-5 text-center text-sm text-muted">
+                    No leads in this view match that filter — try “All leads”.
+                  </p>
+                ) : (
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                  {leads.map((l, i) => (
+                  {visibleLeads.map((l, i) => (
                     <article key={i} className="card card-hover p-5">
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="font-semibold text-fg break-words">{l.company}</h3>
@@ -522,6 +565,7 @@ export default function Dashboard() {
                     </article>
                   ))}
                 </div>
+                )}
               </>
             )}
 
@@ -565,10 +609,18 @@ export default function Dashboard() {
             ) : (
               <ul className="mt-3 space-y-3">
                 {history.map((h, i) => (
-                  <li key={i} className="card flex flex-wrap items-center gap-x-3 gap-y-1 p-4 text-sm">
-                    <span className="font-medium text-fg break-words">{h.industry || "Any industry"} · {h.location || "Any location"}</span>
-                    <span className="text-muted">{h.count} leads</span>
-                    <span className="ml-auto text-xs text-muted">{new Date(h.at).toLocaleString()}</span>
+                  <li key={i} className="card p-0 text-sm">
+                    <button
+                      type="button" disabled={loading}
+                      onClick={() => { setForm({ ...form, industry: h.industry, location: h.location }); void runSearch({ industry: h.industry, location: h.location }); }}
+                      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 p-4 text-left"
+                      aria-label={`Re-run search for ${h.industry || "any industry"} in ${h.location || "any location"}`}
+                    >
+                      <span className="font-medium text-fg break-words">{h.industry || "Any industry"} · {h.location || "Any location"}</span>
+                      <span className="text-muted">{h.count} leads</span>
+                      <span className="text-xs text-accent-text underline">↻ Re-run</span>
+                      <span className="ml-auto text-xs text-muted">{new Date(h.at).toLocaleString()}</span>
+                    </button>
                   </li>
                 ))}
               </ul>
