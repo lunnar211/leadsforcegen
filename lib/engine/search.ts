@@ -114,15 +114,27 @@ function nicheTerms(niche: string): string[] {
 }
 
 async function geocode(location: string): Promise<{ lat: number; lon: number } | null> {
-  const cacheKey = `geo:${location.toLowerCase().trim()}`;
+  // Namespace bumped to geo2: (2026-10-24) — geo: rows may hold a
+  // poisoned point (see below) and must never be read again.
+  const cacheKey = `geo2:${location.toLowerCase().trim()}`;
   const cached = await cacheGet<{ lat: number; lon: number }>(cacheKey, 30 * 24 * 3600_000);
   if (cached) return cached;
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(location)}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(location)}`;
   const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
   if (!res.ok) return null;
-  const data = (await res.json()) as { lat: string; lon: string }[];
+  const data = (await res.json()) as { lat: string; lon: string; addresstype?: string; type?: string }[];
   if (!data.length) return null;
-  const point = { lat: Number(data[0].lat), lon: Number(data[0].lon) };
+  // Disambiguation fix (2026-10-24, proven by SQL diagnostic): a bare
+  // "New York" used to resolve to the STATE (Nominatim's first result),
+  // whose 20km box holds zero stored businesses — while the Manhattan
+  // box holds 37,702 restaurants. Prefer a real settlement over admin
+  // areas; Nominatim returns results importance-ordered, so the first
+  // settlement match is the best city candidate.
+  const settlement = data.find((d) =>
+    ["city", "town", "village", "municipality", "suburb", "hamlet", "borough"].includes(d.addresstype || d.type || ""),
+  );
+  const pick = settlement || data[0];
+  const point = { lat: Number(pick.lat), lon: Number(pick.lon) };
   void cacheSet(cacheKey, point);
   return point;
 }
