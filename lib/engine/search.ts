@@ -770,10 +770,14 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // keep a safety margin under the 60s serverless limit. Partial
     // results beat a killed request (which users see as a bare
     // "network error").
-    // Tightened 2026-10-25 from 38s: the saturated case (many candidates)
-    // ran the full deadline plus MX/AI/route/cold-start and 504'd twice
-    // on London restaurants. 28s leaves room for the tail.
-    const deadline = startedAt + 28_000;
+    // Tightened 2026-10-25 from 38s, then 28s: the saturated case (many
+    // candidates) ran the full deadline plus MX/AI/route/cold-start and
+    // 504'd on London restaurants even after the filter skip. The
+    // inferred cold start (~20s: 60.7s observed minus ~38s engine minus
+    // ~2s route) leaves no room for a 28s crawl. 24s keeps the crawl
+    // window (~10s after the map phase) for the top candidates — the
+    // ones actually returned — while fitting a cold instance.
+    const deadline = startedAt + 24_000;
     let pagesRead = 0;
     type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean; socials: string[] };
     const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false, socials: [] }));
@@ -907,10 +911,10 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // distinct domains now resolve 8 at a time. A soft deadline keeps a
     // slow DNS day from pushing the route into a serverless timeout:
     // leads past it simply skip the +5 bonus, never the result.
-    // Lowered 2026-10-25 from 50s, then 42s -> 34s: the saturated case
-    // still 504'd at 42s once route work + cold start were added.
+    // Lowered 2026-10-25 from 50s -> 42s -> 34s -> 28s: the saturated
+    // case still 504'd once route work + cold start were added.
     // Leads past the deadline skip the +5 bonus, never the result.
-    const mxDeadline = startedAt + 34_000;
+    const mxDeadline = startedAt + 28_000;
     for (let i = 0; i < pendingMx.length; i += 8) {
       if (Date.now() > mxDeadline) break;
       const batch = pendingMx.slice(i, i + 8);
@@ -939,15 +943,16 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       // BUDGET RACE (2026-10-25): the filter's own 12s timeout could land
       // after the MX phase and push the route past the 60s serverless
       // limit. Race it against the time left until 38s from engine
-      // start (tightened 54s -> 44s -> 38s: the 44s race still 504'd
-      // on London restaurants once cold start + route work were
-      // added), leaving ~22s for the route + cold start; a timeout
+      // start (tightened 54s -> 44s -> 38s -> 30s: the 38s race still
+      // 504'd on London restaurants — the inferred ~20s cold start
+      // plus route work needs a 30s engine ceiling), leaving ~30s
+      // for the route + cold start; a timeout
       // fails open via the catch below, exactly like a missing key.
       // SKIP (2026-10-25): when every returned lead is a precise-tag
       // map result, the filter has nothing to catch — the tag IS the
       // trade and the tile IS the city — so skip the round-trip
       // entirely. This is the saturated dense-city case.
-      const budgetLeft = 38_000 - (Date.now() - startedAt);
+      const budgetLeft = 30_000 - (Date.now() - startedAt);
       const v =
         (elements.length || cseRows.length) && !allMapPrecise
           ? budgetLeft > 2000
