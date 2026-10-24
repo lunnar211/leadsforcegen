@@ -50,6 +50,31 @@ const CATEGORY_MAP: Record<string, string[]> = {
 
 const FIELDS = "id,name,category,lat,lon,phone,website,email,socials,address,locality,confidence";
 
+/** Canonical niches the stored database can answer by category. */
+export const KNOWN_NICHES = Object.keys(CATEGORY_MAP);
+
+/**
+ * Match free-text tokens against the category vocabulary (key words +
+ * category strings, e.g. "dental" matches dental_clinic -> dentist).
+ * Exact-token equality only — never substring, so "car" can't match
+ * "care" or "carrefour". Returns the best-scoring canonical niche, or
+ * null when no token matches anything.
+ */
+export function matchNicheByTokens(tokens: string[]): string | null {
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const [key, cats] of Object.entries(CATEGORY_MAP)) {
+    const vocab = new Set<string>();
+    for (const part of [key, ...cats]) {
+      for (const t of part.split(/[^a-z0-9]+/)) if (t) vocab.add(t);
+    }
+    let score = 0;
+    for (const tok of tokens) if (vocab.has(tok)) score++;
+    if (score > bestScore) { bestScore = score; best = key; }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 export async function queryPlaces(
   niche: string,
   terms: string[],

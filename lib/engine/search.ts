@@ -2,8 +2,8 @@ import "server-only";
 import { resolveMx } from "node:dns/promises";
 import { safeFetch } from "@/lib/safe-fetch";
 import { cacheGet, cacheSet } from "@/lib/cache";
-import { queryPlaces } from "@/lib/engine/placesDb";
-import { discoverViaCse } from "@/lib/engine/cse";
+import { queryPlaces, KNOWN_NICHES, matchNicheByTokens } from "@/lib/engine/placesDb";
+import { discoverViaCse, type CseCandidate } from "@/lib/engine/cse";
 import { aiVerifyLeads } from "@/lib/engine/verify";
 import type { Lead } from "@/lib/types";
 
@@ -59,6 +59,16 @@ const CANONICAL_NICHE: Record<string, string> = {
   pharmacy: "pharmacy", pharmacies: "pharmacy", pharmcy: "pharmacy", chemist: "pharmacy",
   clinic: "clinic", clinics: "clinic", clinc: "clinic", hospital: "clinic", doctor: "clinic", doctors: "clinic",
   lawyer: "lawyer", lawyers: "lawyer", lawer: "lawyer", attorney: "lawyer", attorneys: "lawyer", legal: "lawyer",
+  // Car family (2026-10-24: "Car owners" in Dubai returned empty even
+  // though Dubai holds car dealers — no car entry existed at all, so the
+  // niche passed through unmapped and matched nothing anywhere).
+  car: "car dealer", cars: "car dealer", "car dealer": "car dealer", "car dealers": "car dealer",
+  "car owners": "car dealer", "auto dealer": "car dealer", "auto dealers": "car dealer", automotive: "car dealer",
+  // Plurals for niches the category map already knows (same bug class:
+  // "schools"/"banks" passed through unmapped and only name-matched).
+  school: "school", schools: "school", teacher: "teacher", teachers: "teacher",
+  bank: "bank", banks: "bank", "real estate": "real estate", "travel agency": "travel agency",
+  "travel agencies": "travel agency", training: "training",
 };
 
 function levenshtein(a: string, b: string): number {
@@ -91,6 +101,67 @@ export function normalizeNiche(raw: string): string {
   return base;
 }
 
+// Free-text intent (2026-10-24): clients type ANYTHING ("car owners",
+// "shops that fix phones", "people who need loans") — the engine must
+// understand the intent and map it onto a real business category, never
+// invent businesses. Resolution chain, in order:
+//   1. canonical map / near-miss spelling (normalizeNiche)
+//   2. token match against the measured category vocabulary
+//   3. AI classifier that may ONLY pick from KNOWN_NICHES (validated —
+//      any other output is rejected, so it can never invent a category)
+//   4. pass-through (name fallback, then AI prospects, then honest empty)
+const NICHE_STOPWORDS = new Set([
+  "owner", "owners", "service", "services", "shop", "shops", "store", "stores",
+  "company", "companies", "business", "businesses", "near", "me", "best", "top",
+  "local", "find", "finding", "looking", "for", "in", "and", "the", "a", "an",
+  "who", "need", "needs", "want", "wants", "list", "of", "show", "around",
+  "that", "which", "with", "all", "any", "please", "get", "got",
+]);
+
+function nicheTokens(raw: string): string[] {
+  return raw
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((t) => (t.length > 3 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t))
+    .filter((t) => t.length >= 3 && !NICHE_STOPWORDS.has(t));
+}
+
+async function classifyNiche(raw: string): Promise<string | null> {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return null;
+  const prompt = `The user typed a business search phrase: "${raw}". Pick the SINGLE closest business category from this exact list, or NONE if none fits: ${KNOWN_NICHES.join(", ")}. Reply with ONLY the category name or NONE, nothing else.`;
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: process.env.AI_MODEL || "llama-3.3-70b-versatile",
+        temperature: 0,
+        messages: [{ role: "user", content: prompt }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = (data.choices?.[0]?.message?.content || "").trim().toLowerCase();
+    return KNOWN_NICHES.includes(text) ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveNiche(raw: string): Promise<{ niche: string; mapped: boolean }> {
+  const canonical = normalizeNiche(raw);
+  if (KNOWN_NICHES.includes(canonical)) return { niche: canonical, mapped: true };
+  const tokens = nicheTokens(raw);
+  const byToken = tokens.length ? matchNicheByTokens(tokens) : null;
+  if (byToken) return { niche: byToken, mapped: true };
+  const classified = await classifyNiche(raw);
+  if (classified) return { niche: classified, mapped: true };
+  return { niche: canonical, mapped: false };
+}
+
 function nicheTerms(niche: string): string[] {
   const base = niche.toLowerCase().trim();
   const singular = base.replace(/s$/, "");
@@ -108,6 +179,7 @@ function nicheTerms(niche: string): string[] {
     clinic: ["clinic", "doctors", "hospital"],
     lawyer: ["lawyer", "attorney", "legal"],
     cafe: ["cafe", "coffee"],
+    "car dealer": ["car dealer", "auto dealer", "automotive"],
   };
   for (const s of synonyms[base] || synonyms[singular] || []) terms.add(s);
   return [...terms].filter(Boolean);
@@ -164,6 +236,7 @@ const NICHE_TAGS: Record<string, [string, string][]> = {
   plumber: [["craft", "plumber"]],
   electrician: [["craft", "electrician"]],
   lawyer: [["office", "lawyer"]],
+  "car dealer": [["shop", "car"]],
 };
 
 async function overpass(lat: number, lon: number, niche: string, terms: string[]): Promise<OsmElement[]> {
@@ -444,36 +517,45 @@ export async function discoverContactPages(origin: string): Promise<string[]> {
   }
 }
 
-export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number };
+export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string };
 
 export async function searchEverywhere(niche: string, location: string, limit: number): Promise<EngineResult> {
   const empty: EngineResult = { leads: [], pagesRead: 0, placesFound: 0 };
   const startedAt = Date.now();
+  let resolvedNiche: string | undefined;
   try {
     if (!niche || !location) return empty;
-    niche = normalizeNiche(niche);
+    const rawNiche = niche;
+    const resolved = await resolveNiche(niche);
+    niche = resolved.niche;
+    // The UI note tells the user what their words were understood as,
+    // so a "car owners" search transparently shows "car dealers".
+    if (resolved.mapped && niche.toLowerCase() !== rawNiche.toLowerCase().trim()) resolvedNiche = niche;
     const geo = await geocode(location);
-    if (!geo) return empty;
+    if (!geo) return { ...empty, resolvedNiche };
     const terms = nicheTerms(niche);
-    // All three discovery layers run CONCURRENTLY. The map layer is
-    // capped: Overpass mirrors + the OSM API fallback used to run
-    // sequentially and cost ~27s on an empty result; now they chain
-    // under one 15s budget and a timeout simply yields no map
-    // candidates (the stored DB + CSE still serve). Empty searches
-    // fail fast instead of burning the whole serverless budget.
-    const mapChain = (async () => {
-      const els = await overpass(geo.lat, geo.lon, niche, terms);
-      if (els.length) return els;
-      return osmApiFallback(geo.lat, geo.lon);
-    })();
-    const mapCap = new Promise<OsmElement[]>((r) => setTimeout(() => r([]), 15000));
-    const dbPromise = queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit).catch(() => []);
-    const csePromise = discoverViaCse(niche, location, limit).catch(() => []);
-    const [elements, dbPlaces, cseRows] = await Promise.all([
-      Promise.race([mapChain, mapCap]),
-      dbPromise,
-      csePromise,
-    ]);
+    // SPEED (2026-10-24): the stored DB answers in milliseconds, but
+    // the old code awaited the 15s-capped map race on EVERY search —
+    // even covered-city searches whose DB rows already fill the
+    // request. Await the DB first: if it alone fills `limit`, skip the
+    // map race and CSE entirely (DB latency added to the other path
+    // is milliseconds). Empty/uncovered searches still run the full
+    // discovery set, capped as before.
+    const dbPlaces = await queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit).catch(() => []);
+    let elements: OsmElement[] = [];
+    let cseRows: CseCandidate[] = [];
+    if (dbPlaces.length < limit) {
+      const mapChain = (async () => {
+        const els = await overpass(geo.lat, geo.lon, niche, terms);
+        if (els.length) return els;
+        return osmApiFallback(geo.lat, geo.lon);
+      })();
+      const mapCap = new Promise<OsmElement[]>((r) => setTimeout(() => r([]), 15000));
+      [elements, cseRows] = await Promise.all([
+        Promise.race([mapChain, mapCap]),
+        discoverViaCse(niche, location, limit).catch(() => []),
+      ]);
+    }
     const precisePairs = new Set((NICHE_TAGS[niche] || []).map(([k, v]) => `${k}=${v}`));
 
     type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string; precise: boolean; distKm: number; socialsSeed?: string[]; sourceUrl?: string; sourceName?: string; confidence?: number };
@@ -595,6 +677,12 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       const c = candidates[idx];
       const e = enriched[idx];
       if (!c.website || pagesRead >= 24 || Date.now() > deadline) return;
+      // FAST PATH (2026-10-24): a stored listing that already carries
+      // email + phone + website needs no live crawl — its contacts are
+      // the business's own published data from the listing, and its
+      // socials still flow via socialsSeed. Crawling it anyway cost
+      // every covered-city search up to 24 slow page fetches.
+      if (c.sourceName === "Overture Maps" && c.email && c.phone && c.website) return;
       const domain = domainOf(c.website);
       // Website extractions are cached for a week — the same business
       // shows up across many searches and its published contacts rarely
@@ -703,18 +791,23 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     leads.sort((a, b) => b.score - a.score);
     // AI originality filter (env-gated, fail-open): one batched Groq
     // call drops listings that are clearly the wrong trade or the
-    // wrong city. It never adds or invents anything.
+    // wrong city. It never adds or invents anything. Skipped for pure
+    // stored-DB results: those rows are already category-matched and
+    // bbox-matched, so there is nothing for the filter to catch — and
+    // skipping it keeps covered-city searches off the Groq round-trip.
     let aiFiltered = 0;
     try {
-      const v = await aiVerifyLeads(leads, niche, location);
+      const v = elements.length || cseRows.length
+        ? await aiVerifyLeads(leads, niche, location)
+        : { kept: leads, dropped: 0 };
       if (v.dropped > 0) {
         leads.length = 0;
         leads.push(...v.kept);
         aiFiltered = v.dropped;
       }
     } catch { /* filter is best-effort; unfiltered results still serve */ }
-    return { leads, pagesRead, placesFound: candidates.length, aiFiltered };
+    return { leads, pagesRead, placesFound: candidates.length, aiFiltered, resolvedNiche };
   } catch {
-    return empty;
+    return { ...empty, resolvedNiche };
   }
 }
