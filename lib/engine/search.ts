@@ -765,11 +765,15 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     candidates.sort((a, b) => Number(b.precise) - Number(a.precise) || a.distKm - b.distKm);
 
     // Enrichment runs with limited concurrency under a hard deadline tied
-    // to the ENGINE start (geocode + Overpass already spent some of it):
-    // the whole engine must finish by ~38s so the route keeps a safety
-    // margin under the 60s serverless limit. Partial results beat a
-    // killed request (which users see as a bare "network error").
-    const deadline = startedAt + 38_000;
+    // to the ENGINE start (geocode + map already spent some of it):
+    // the whole engine must finish by ~44s so the route + a cold start
+    // keep a safety margin under the 60s serverless limit. Partial
+    // results beat a killed request (which users see as a bare
+    // "network error").
+    // Tightened 2026-10-25 from 38s: the saturated case (many candidates)
+    // ran the full deadline plus MX/AI/route/cold-start and 504'd twice
+    // on London restaurants. 28s leaves room for the tail.
+    const deadline = startedAt + 28_000;
     let pagesRead = 0;
     type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean; socials: string[] };
     const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false, socials: [] }));
@@ -895,11 +899,10 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // distinct domains now resolve 8 at a time. A soft deadline keeps a
     // slow DNS day from pushing the route into a serverless timeout:
     // leads past it simply skip the +5 bonus, never the result.
-    // Lowered 2026-10-25 from 50s: with the AI filter's 12s tail after it,
-    // 50s left no room for the route under the 60s serverless limit
-    // (London restaurants 504'd twice). Leads past the deadline skip
-    // the +5 bonus, never the result.
-    const mxDeadline = startedAt + 42_000;
+    // Lowered 2026-10-25 from 50s, then 42s -> 34s: the saturated case
+    // still 504'd at 42s once route work + cold start were added.
+    // Leads past the deadline skip the +5 bonus, never the result.
+    const mxDeadline = startedAt + 34_000;
     for (let i = 0; i < pendingMx.length; i += 8) {
       if (Date.now() > mxDeadline) break;
       const batch = pendingMx.slice(i, i + 8);
@@ -925,10 +928,11 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     try {
       // BUDGET RACE (2026-10-25): the filter's own 12s timeout could land
       // after the MX phase and push the route past the 60s serverless
-      // limit. Race it against the time left until 54s from engine
-      // start, leaving ~6s for the route; a timeout fails open via the
-      // catch below, exactly like a missing key.
-      const budgetLeft = 54_000 - (Date.now() - startedAt);
+      // limit. Race it against the time left until 44s from engine
+      // start (tightened from 54s after the 42s caps still 504'd),
+      // leaving ~16s for the route + cold start; a timeout fails open
+      // via the catch below, exactly like a missing key.
+      const budgetLeft = 44_000 - (Date.now() - startedAt);
       const v =
         elements.length || cseRows.length
           ? budgetLeft > 2000

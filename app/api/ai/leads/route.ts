@@ -224,7 +224,10 @@ async function handlePost(req: Request) {
   // effectively unlimited (fair-use ceiling in lib/types).
   const perSearchCap = quotaUser?.plan === "pro" ? 500 : 30;
   const limitWanted = Math.min(want, perSearchCap);
-  const searchKey = `search:v6:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
+  // Cache version bumped v6 -> v7 (2026-10-25): v6 entries predate the
+  // business-only map filter, so exact queries (e.g. schools/London)
+  // kept serving the old access-object result until the 6h expiry.
+  const searchKey = `search:v7:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
   let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
   const fromCache = Boolean(engine);
   if (!engine) {
