@@ -244,7 +244,12 @@ async function handlePost(req: Request) {
     // were searched as, fresh or cached.
     const searched = engine.resolvedNiche || normalizeNiche(niche);
     const prefix = searched !== niche ? `Showing ${searched} for "${niche}": ` : "";
-    const note = `${prefix}Found ${engine.leads.length} real businesses from public business listings (Overture Maps + OpenStreetMap) and their own websites${fromCache ? " (served from the results cache, refreshed every few hours)" : `, ${engine.pagesRead} pages read`}${engine.aiFiltered ? `, AI originality check removed ${engine.aiFiltered} off-topic listing${engine.aiFiltered === 1 ? "" : "s"}` : ""}. Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and listing source. Verify before outreach.`;
+    let note = `${prefix}Found ${engine.leads.length} real businesses from public business listings (Overture Maps + OpenStreetMap) and their own websites${fromCache ? " (served from the results cache, refreshed every few hours)" : `, ${engine.pagesRead} pages read`}${engine.aiFiltered ? `, AI originality check removed ${engine.aiFiltered} off-topic listing${engine.aiFiltered === 1 ? "" : "s"}` : ""}. Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and listing source. Verify before outreach.`;
+    // Country/state searches used to show only this "Found N" note even
+    // when the N leads came from around the country's center point
+    // (USA → Kansas), because the guidance sentence lived only in the
+    // empty branch. Append it whenever the location is broad.
+    if (engine.broadLocation) note += ` "${where}" looks like a whole country, state or region — these results are around its center point. Search a city inside it instead (for example New York, Los Angeles or Chicago for the USA, or London for the UK) for businesses near you.`;
     if (quotaUser) {
       const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
       if (!consumed) {

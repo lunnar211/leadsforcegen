@@ -285,11 +285,22 @@ const NICHE_TAGS: Record<string, [string, string][]> = {
 async function overpass(lat: number, lon: number, niche: string, terms: string[]): Promise<OsmElement[]> {
   const regex = terms.join("|").replace(/[^a-z0-9| ]/g, "");
   const clauses: string[] = [];
-  for (const [k, v] of NICHE_TAGS[niche] || []) {
-    clauses.push(`nwr["${k}"="${v}"](around:20000,${lat},${lon});`);
+  // DENSE-CITY FIX (2026-10-24, measured): the two regex clauses scan
+  // every object in a 20 km radius (1,256 km²) — in London that never
+  // answers inside the 15s budget, so dense cities came back empty
+  // while sparse areas worked. Tag lookups are indexed and answer in
+  // seconds even in London, so mapped niches now query tags ONLY.
+  // Tag-less (pass-through) niches keep the name regex but at 5 km
+  // (79 km², 16x less area). The 15s cap is NOT raised: geocode ≤6s +
+  // map 15s + enrichment 38s ≈ 59s vs the 60s serverless max.
+  const tags = NICHE_TAGS[niche] || [];
+  if (tags.length) {
+    for (const [k, v] of tags) {
+      clauses.push(`nwr["${k}"="${v}"](around:20000,${lat},${lon});`);
+    }
+  } else {
+    clauses.push(`nwr["name"~"${regex}",i](around:5000,${lat},${lon});`);
   }
-  clauses.push(`nwr["name"~"${regex}",i](around:20000,${lat},${lon});`);
-  clauses.push(`nwr[~"^(amenity|shop|office|tourism|leisure|healthcare|craft)$"~"${regex}",i](around:20000,${lat},${lon});`);
   const ql = `[out:json][timeout:15];(${clauses.join("")});out center 150;`;
   const mirrors = process.env.OVERPASS_URL
     ? process.env.OVERPASS_URL.split(",").map((s) => s.trim()).filter(Boolean)
