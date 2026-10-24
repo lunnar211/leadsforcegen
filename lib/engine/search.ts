@@ -180,16 +180,30 @@ function nicheTerms(niche: string): string[] {
     lawyer: ["lawyer", "attorney", "legal"],
     cafe: ["cafe", "coffee"],
     "car dealer": ["car dealer", "auto dealer", "automotive"],
+    school: ["school", "college", "university"],
+    bank: ["bank"],
+    "real estate": ["estate", "realtor", "property"],
+    "travel agency": ["travel"],
+    bakery: ["bakery"],
+    bar: ["bar", "pub"],
+    supermarket: ["supermarket", "grocery"],
+    "car repair": ["car repair", "auto repair", "garage"],
+    vet: ["veterinary", "vet"],
+    florist: ["florist", "flowers"],
+    bookstore: ["bookstore", "books"],
+    optician: ["optician", "optometrist"],
+    accountant: ["accountant", "accounting"],
+    architect: ["architect", "architecture"],
   };
   for (const s of synonyms[base] || synonyms[singular] || []) terms.add(s);
   return [...terms].filter(Boolean);
 }
 
-async function geocode(location: string): Promise<{ lat: number; lon: number } | null> {
-  // Namespace bumped to geo2: (2026-10-24) — geo: rows may hold a
-  // poisoned point (see below) and must never be read again.
-  const cacheKey = `geo2:${location.toLowerCase().trim()}`;
-  const cached = await cacheGet<{ lat: number; lon: number }>(cacheKey, 30 * 24 * 3600_000);
+async function geocode(location: string): Promise<{ lat: number; lon: number; broad: boolean } | null> {
+  // Namespace bumped to geo3: (2026-10-24) — geo2: rows lack the broad
+  // flag below, and re-geocoding is cheap.
+  const cacheKey = `geo3:${location.toLowerCase().trim()}`;
+  const cached = await cacheGet<{ lat: number; lon: number; broad: boolean }>(cacheKey, 30 * 24 * 3600_000);
   if (cached) return cached;
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(location)}`;
   const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
@@ -206,7 +220,12 @@ async function geocode(location: string): Promise<{ lat: number; lon: number } |
     ["city", "town", "village", "municipality", "suburb", "hamlet", "borough"].includes(d.addresstype || d.type || ""),
   );
   const pick = settlement || data[0];
-  const point = { lat: Number(pick.lat), lon: Number(pick.lon) };
+  // broad = no settlement among Nominatim's results: the pick is a
+  // country/state/county, so a 20 km box around its center is nearly
+  // meaningless. The engine still searches (the box sometimes lands on
+  // a town), but an empty result becomes guidance instead of a dead
+  // end (see the route's empty note).
+  const point = { lat: Number(pick.lat), lon: Number(pick.lon), broad: !settlement };
   void cacheSet(cacheKey, point);
   return point;
 }
@@ -237,6 +256,30 @@ const NICHE_TAGS: Record<string, [string, string][]> = {
   electrician: [["craft", "electrician"]],
   lawyer: [["office", "lawyer"]],
   "car dealer": [["shop", "car"]],
+  // 2026-10-24 find-anyhow expansion: these niches had stored-DB
+  // categories but NO map tags, so outside covered cities they fell
+  // back to weak name matching only — school/bank searches abroad
+  // came back empty while dentist searches (precise amenity tag)
+  // worked. That gap is exactly why users saw "only doctors work".
+  school: [["amenity", "school"], ["amenity", "college"], ["amenity", "university"], ["amenity", "kindergarten"]],
+  teacher: [["amenity", "school"], ["amenity", "college"], ["amenity", "university"]],
+  training: [["amenity", "school"], ["amenity", "college"], ["office", "educational_institution"]],
+  bank: [["amenity", "bank"]],
+  "real estate": [["office", "estate_agent"]],
+  "travel agency": [["office", "travel_agent"], ["shop", "travel_agency"]],
+  // Professions with no stored-DB category at all: the map path is
+  // their only source, so they get tags + name terms even though the
+  // DB query can only name-match them in covered cities.
+  bakery: [["shop", "bakery"]],
+  bar: [["amenity", "bar"], ["amenity", "pub"]],
+  supermarket: [["shop", "supermarket"], ["shop", "grocery"], ["shop", "convenience"]],
+  "car repair": [["shop", "car_repair"]],
+  vet: [["amenity", "veterinary"]],
+  florist: [["shop", "florist"]],
+  bookstore: [["shop", "books"]],
+  optician: [["shop", "optician"], ["healthcare", "optometrist"]],
+  accountant: [["office", "accountant"]],
+  architect: [["office", "architect"]],
 };
 
 async function overpass(lat: number, lon: number, niche: string, terms: string[]): Promise<OsmElement[]> {
@@ -300,8 +343,9 @@ async function osmApiFallback(lat: number, lon: number): Promise<OsmElement[]> {
     }
   };
   const settled = await Promise.allSettled([
-    tile(lat - d, lon - d), tile(lat - d, lon + d),
-    tile(lat + d, lon - d), tile(lat + d, lon + d),
+    tile(lat - d, lon - d), tile(lat - d, lon), tile(lat - d, lon + d),
+    tile(lat, lon - d), tile(lat, lon), tile(lat, lon + d),
+    tile(lat + d, lon - d), tile(lat + d, lon), tile(lat + d, lon + d),
   ]);
   const byKey = new Map<string, OsmElement & { nodes?: number[] }>();
   for (const s of settled) {
@@ -517,12 +561,13 @@ export async function discoverContactPages(origin: string): Promise<string[]> {
   }
 }
 
-export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string };
+export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string; broadLocation?: boolean };
 
 export async function searchEverywhere(niche: string, location: string, limit: number): Promise<EngineResult> {
   const empty: EngineResult = { leads: [], pagesRead: 0, placesFound: 0 };
   const startedAt = Date.now();
   let resolvedNiche: string | undefined;
+  let broadLocation = false;
   try {
     if (!niche || !location) return empty;
     const rawNiche = niche;
@@ -533,6 +578,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     if (resolved.mapped && niche.toLowerCase() !== rawNiche.toLowerCase().trim()) resolvedNiche = niche;
     const geo = await geocode(location);
     if (!geo) return { ...empty, resolvedNiche };
+    broadLocation = geo.broad;
     const terms = nicheTerms(niche);
     // SPEED (2026-10-24): the stored DB answers in milliseconds, but
     // the old code awaited the 15s-capped map race on EVERY search —
@@ -545,11 +591,18 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     let elements: OsmElement[] = [];
     let cseRows: CseCandidate[] = [];
     if (dbPlaces.length < limit) {
-      const mapChain = (async () => {
-        const els = await overpass(geo.lat, geo.lon, niche, terms);
-        if (els.length) return els;
-        return osmApiFallback(geo.lat, geo.lon);
-      })();
+      // FIND-ANYHOW (2026-10-24): Overpass mirrors reject datacenter IPs,
+      // and the old chain awaited Overpass FIRST — so when mirrors hung,
+      // the 15s cap fired before the OSM API fallback ever ran, and the
+      // fallback's results were discarded even when it would have
+      // worked. Race BOTH sources in parallel and take the first
+      // NON-EMPTY answer, capped at 15s.
+      const nonEmpty = (p: Promise<OsmElement[]>) =>
+        p.then((els) => (els.length ? els : Promise.reject(new Error("empty"))));
+      const mapChain = Promise.any([
+        nonEmpty(overpass(geo.lat, geo.lon, niche, terms)),
+        nonEmpty(osmApiFallback(geo.lat, geo.lon)),
+      ]).catch((): OsmElement[] => []);
       const mapCap = new Promise<OsmElement[]>((r) => setTimeout(() => r([]), 15000));
       [elements, cseRows] = await Promise.all([
         Promise.race([mapChain, mapCap]),
@@ -827,8 +880,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         aiFiltered = v.dropped;
       }
     } catch { /* filter is best-effort; unfiltered results still serve */ }
-    return { leads, pagesRead, placesFound: candidates.length, aiFiltered, resolvedNiche };
+    return { leads, pagesRead, placesFound: candidates.length, aiFiltered, resolvedNiche, broadLocation };
   } catch {
-    return { ...empty, resolvedNiche };
+    return { ...empty, resolvedNiche, broadLocation };
   }
 }

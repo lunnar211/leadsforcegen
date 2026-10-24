@@ -38,8 +38,8 @@ export const SEO_CITIES: SeoCity[] = [
   { slug: "mumbai", name: "Mumbai", dataset: 217583, live: false },
   { slug: "toronto", name: "Toronto", dataset: 205521, live: false },
   { slug: "sydney", name: "Sydney", dataset: 180524, live: false },
-  { slug: "dhaka", name: "Dhaka", dataset: 106514, live: false },
-  { slug: "karachi", name: "Karachi", dataset: 35985, live: false },
+  { slug: "dhaka", name: "Dhaka", dataset: 106514, live: true },
+  { slug: "karachi", name: "Karachi", dataset: 35985, live: true },
 ];
 
 export const SEO_NICHES: SeoNiche[] = [

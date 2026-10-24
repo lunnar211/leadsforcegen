@@ -90,6 +90,9 @@ def extract(country: str | None, bbox, out_csv: str) -> int:
 
     con = duckdb.connect()
     con.execute("INSTALL httpfs; LOAD httpfs;")
+    # Same failure class as ingest_overture_city.py: DuckDB's default
+    # 30s per-request timeout trips on slow proxy reads.
+    con.execute("SET http_timeout=300;")
     if p and p.hostname:
         con.execute(f"SET http_proxy='{p.hostname}:{p.port}';")
         if p.username:

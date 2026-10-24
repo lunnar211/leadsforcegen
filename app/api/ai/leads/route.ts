@@ -281,7 +281,9 @@ async function handlePost(req: Request) {
     leads = [];
     source = "none";
     const searchedEmpty = engine.resolvedNiche || normalizeNiche(niche);
-    note = `No real businesses found for "${niche}"${searchedEmpty !== niche ? ` (searched as "${searchedEmpty}")` : ""} in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York and Seattle (1,000,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
+    note = engine.broadLocation
+      ? `"${where}" looks like a whole country, state or region — a 20 km search around its center finds almost nothing. Search a city inside it instead (for example New York, Los Angeles or Chicago for the USA, or London for the UK) and you'll get real businesses.`
+      : `No real businesses found for "${niche}"${searchedEmpty !== niche ? ` (searched as "${searchedEmpty}")` : ""} in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
   }
 
   if (leads.length === 0) {
