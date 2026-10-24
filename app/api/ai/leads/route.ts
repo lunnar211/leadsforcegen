@@ -156,6 +156,10 @@ export async function POST(req: Request) {
 }
 
 async function handlePost(req: Request) {
+  // WALL CLOCK (2026-10-25): function-entry timestamp, threaded into
+  // the engine so every deadline counts the cold start. See the engine
+  // header comment — this is what stops the 60s serverless kill.
+  const t0 = Date.now();
   if (!(await rateLimit(`ai-leads:${clientIp(req)}`, 20, 60_000))) {
     return NextResponse.json({ ok: false, error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
   }
@@ -231,7 +235,7 @@ async function handlePost(req: Request) {
   let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
   const fromCache = Boolean(engine);
   if (!engine) {
-    engine = await searchEverywhere(niche, where, limitWanted);
+    engine = await searchEverywhere(niche, where, limitWanted, t0);
     if (engine.leads.length > 0) void cacheSet(searchKey, engine);
   }
   // Filtering at response time (not at cache time) so a cached result can
@@ -268,23 +272,47 @@ async function handlePost(req: Request) {
     return NextResponse.json({ leads: engine.leads, source: "search-everywhere", note });
   }
 
-  // AI chain: Groq first, Gemini second, samples last. AI leads then go
-  // through the AI filter (Gemini, Groq backup) which drops off-topic
-  // results and re-scores the rest — it never adds data.
-  let ai = await groqLeads(body);
-  let aiSource = "groq";
-  if (!ai) {
-    ai = await geminiLeads(body);
-    aiSource = "gemini";
+  // AI chain: Groq first, Gemini second. AI leads then go through the
+  // AI filter (Gemini, Groq backup) which drops off-topic results and
+  // re-scores the rest — it never adds data.
+  // WALL CLOCK (2026-10-25): this chain's worst case is 44s (Groq 12s
+  // + Gemini 12s + filter up to 20s). After a cold start + discovery
+  // it pushed the function past the 60s serverless limit — the
+  // restaurants/London 504s. Race the whole chain against the time
+  // left until 52s from function start; on timeout, fall through to
+  // the honest-empty result. A fast honest answer always beats a
+  // killed request.
+  const aiBudget = 52_000 - (Date.now() - t0);
+  let aiResult: { leads: Lead[]; source: string; note: string } | null = null;
+  if (aiBudget > 3000) {
+    try {
+      aiResult = await Promise.race([
+        (async () => {
+          let ai = await groqLeads(body);
+          let aiSource = "groq";
+          if (!ai) {
+            ai = await geminiLeads(body);
+            aiSource = "gemini";
+          }
+          if (!ai) return null;
+          const filtered = await aiFilter(ai, niche, where);
+          return {
+            leads: filterBlocked(filtered.leads, blocklist),
+            source: filtered.by ? `${aiSource}+${filtered.by}-filter` : aiSource,
+            note: `AI-generated company prospects (${aiSource}${filtered.by ? `, relevance-filtered by ${filtered.by}` : ""}). Verify every lead before outreach — do not treat AI output as verified contact data.`,
+          };
+        })(),
+        new Promise<null>((_, rej) => setTimeout(() => rej(new Error("ai budget")), aiBudget)),
+      ]);
+    } catch {
+      aiResult = null;
+    }
   }
   let leads: Lead[];
   let source: string;
   let note: string;
-  if (ai) {
-    const filtered = await aiFilter(ai, niche, where);
-    leads = filterBlocked(filtered.leads, blocklist);
-    source = filtered.by ? `${aiSource}+${filtered.by}-filter` : aiSource;
-    note = `AI-generated company prospects (${aiSource}${filtered.by ? `, relevance-filtered by ${filtered.by}` : ""}). Verify every lead before outreach — do not treat AI output as verified contact data.`;
+  if (aiResult) {
+    ({ leads, source, note } = aiResult);
   } else {
     leads = [];
     source = "none";

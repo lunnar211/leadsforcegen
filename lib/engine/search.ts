@@ -588,9 +588,15 @@ export async function discoverContactPages(origin: string): Promise<string[]> {
 
 export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string; broadLocation?: boolean };
 
-export async function searchEverywhere(niche: string, location: string, limit: number): Promise<EngineResult> {
+export async function searchEverywhere(niche: string, location: string, limit: number, startedAtOverride?: number): Promise<EngineResult> {
   const empty: EngineResult = { leads: [], pagesRead: 0, placesFound: 0 };
-  const startedAt = Date.now();
+  // WALL CLOCK (2026-10-25): the route passes its own entry timestamp
+  // so every deadline below counts the cold start + route pre-work,
+  // not just the engine. Without this, a ~26s cold start plus a 30s
+  // engine ceiling plus route work landed right on the 60s
+  // serverless limit and restaurants/London 504'd seven times.
+  // Callers that omit the override get the old engine-entry behavior.
+  const startedAt = startedAtOverride ?? Date.now();
   let resolvedNiche: string | undefined;
   let broadLocation = false;
   try {
@@ -616,7 +622,11 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     let elements: OsmElement[] = [];
     let mapLeg = "none";
     let cseRows: CseCandidate[] = [];
-    if (dbPlaces.length < limit) {
+    // WALL-CLOCK MAP GATE (2026-10-25): a 15s map race starting after
+    // 38s of function time leaves no room for route work — skip it and
+    // serve DB-only results (or the honest-empty path) instead of
+    // letting Vercel kill the request.
+    if (dbPlaces.length < limit && Date.now() - startedAt < 38_000) {
       // FIND-ANYHOW (2026-10-24): Overpass mirrors reject datacenter IPs,
       // and the old chain awaited Overpass FIRST — so when mirrors hung,
       // the 15s cap fired before the OSM API fallback ever ran, and the
@@ -765,7 +775,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     candidates.sort((a, b) => Number(b.precise) - Number(a.precise) || a.distKm - b.distKm);
 
     // Enrichment runs with limited concurrency under a hard deadline tied
-    // to the ENGINE start (geocode + map already spent some of it):
+    // to the FUNCTION start (the route passes its entry timestamp, so
+    // cold start + geocode + map already spent some of it):
     // the whole engine must finish by ~44s so the route + a cold start
     // keep a safety margin under the 60s serverless limit. Partial
     // results beat a killed request (which users see as a bare
