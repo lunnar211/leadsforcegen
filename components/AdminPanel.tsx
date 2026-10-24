@@ -118,7 +118,7 @@ export default function AdminPanel() {
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 {cards.map(([k, v]) => (
                   <div key={k} className="card card-hover relative overflow-hidden p-4 sm:p-5">
-                    <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: "linear-gradient(90deg, var(--accent), var(--cta))" }} aria-hidden="true" />
+                    <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: "var(--accent)" }} aria-hidden="true" />
                     <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">{k}</p>
                     <p className="mt-1.5 text-3xl font-extrabold tracking-tight text-fg">{v}</p>
                   </div>

@@ -39,7 +39,7 @@ export default function AdminLogin({ configured }: { configured: boolean }) {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10 sm:py-14">
       <div className="flex items-center gap-3">
-        <span className="inline-flex items-center justify-center rounded-[10px] p-[9px] text-white shadow-md" style={{ background: "linear-gradient(135deg, var(--accent), var(--cta))" }} aria-hidden="true">
+        <span className="inline-flex items-center justify-center rounded-[10px] p-[9px] text-white shadow-md" style={{ background: "var(--accent)" }} aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l7 2.8v5.4c0 4.6-3 7.7-7 9.3-4-1.6-7-4.7-7-9.3V5.8L12 3z" /><path d="m9 11.6 2.2 2.2L15.4 9.6" /></svg>
         </span>
         <div>

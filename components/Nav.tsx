@@ -14,12 +14,27 @@ async function loadSupabase(): Promise<SupabaseModule> {
 
 type Theme = "light" | "dark";
 
-// Inline SVG icons (design system rule: SVG icons, never emoji).
+// Inline SVG icons (design system rule: SVG icons, never emoji or
+// text glyphs). Brand mark is flat accent — no gradient.
 function BoltMark() {
   return (
-    <span className="inline-flex items-center justify-center rounded-[10px] p-[7px] text-white shadow-md" style={{ background: "linear-gradient(135deg, var(--accent), var(--cta))" }} aria-hidden="true">
+    <span className="inline-flex items-center justify-center rounded-[10px] p-[7px] text-white shadow-md" style={{ background: "var(--accent)" }} aria-hidden="true">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5h6L9.3 22l8.7-11.5h-6.2L13 2z" /></svg>
     </span>
+  );
+}
+function MenuIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  );
+}
+function CloseIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
   );
 }
 function SunIcon() {
@@ -183,7 +198,7 @@ export default function Nav() {
               aria-label={open ? "Close menu" : "Open menu"}
               onClick={() => setOpen((v) => !v)}
             >
-              <span aria-hidden="true" className="text-2xl leading-none">{open ? "✕" : "☰"}</span>
+              <span aria-hidden="true" className="inline-flex">{open ? <CloseIcon /> : <MenuIcon />}</span>
             </button>
           </div>
         </div>

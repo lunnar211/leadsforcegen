@@ -50,10 +50,10 @@ const features = [
 ];
 
 const stats = [
-  ["1M+", "businesses in the database"],
+  ["1.1M+", "businesses in the database"],
   ["87%+", "of leads publish a phone"],
   ["500", "leads per Pro search"],
-  ["24/7", "Telegram admin bot"],
+  ["30", "free leads every day"],
 ];
 
 const steps = [
@@ -71,16 +71,12 @@ const mockLeads = [
 ];
 
 function DashboardMock() {
+  // Product preview, not a fake browser: no traffic-light dots, no
+  // fake URL bar — just the search row and real lead rows, framed by
+  // the same card the product itself uses.
   return (
     <div className="relative mx-auto mt-14 max-w-3xl" aria-hidden="true">
-      <div className="absolute -inset-8 rounded-[36px] opacity-60 blur-2xl" style={{ background: "linear-gradient(120deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--cta) 18%, transparent))" }} />
       <div className="card relative overflow-hidden text-left shadow-[var(--shadow-lg)]">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#f87171" }} />
-          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#fbbf24" }} />
-          <span className="h-2.5 w-2.5 rounded-full" style={{ background: "#34d399" }} />
-          <span className="ml-3 hidden rounded-md bg-surface px-3 py-1 text-xs text-muted sm:block">leadsforcegen.vercel.app/dashboard</span>
-        </div>
         <div className="space-y-3 p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-lg border border-input-border bg-input-bg px-3 py-2 text-sm text-fg">Industry: <strong>Dentist</strong></span>
@@ -126,9 +122,9 @@ export default function Home() {
         <section className="text-center">
           <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold text-fg shadow-sm">
             <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
-            1,000,000+ verified businesses live — UAE · Nepal · New York · Seattle
+            1.1M+ real businesses — UAE · Nepal · New York · Seattle · Karachi · Dhaka
           </p>
-          <h1 className="mx-auto mt-7 max-w-3xl text-[2.6rem] font-extrabold leading-[1.05] tracking-[-0.03em] text-fg sm:text-6xl lg:text-[4.2rem]">
+          <h1 className="mx-auto mt-7 max-w-3xl text-5xl font-extrabold leading-[1.05] tracking-[-0.02em] text-fg sm:text-6xl">
             Find <span className="text-accent-text">real business leads</span>, anywhere.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
@@ -217,10 +213,10 @@ export default function Home() {
         </Reveal>
 
         <Reveal className="mt-24">
-          <div className="relative overflow-hidden rounded-[calc(var(--radius)+10px)] px-6 py-12 text-center shadow-[var(--shadow-lg)]" style={{ background: "linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--cta)))" }}>
+          <div className="relative overflow-hidden rounded-3xl bg-slate-900 px-6 py-12 text-center shadow-[var(--shadow-lg)]">
             <h2 className="text-3xl font-extrabold tracking-tight text-white">Your next customer is already in the database.</h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-white/85">Join free, run your first search in under a minute, and see real businesses — not samples.</p>
-            <Link href="/signup" className="mt-7 inline-flex min-h-[44px] items-center justify-center rounded-[var(--radius)] bg-white px-6 py-3 font-bold text-slate-900 shadow-lg transition-transform hover:-translate-y-0.5">Start free</Link>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-slate-300">Join free, run your first search in under a minute, and see real businesses — not samples.</p>
+            <Link href="/signup" className="btn-cta mt-7">Start free</Link>
           </div>
         </Reveal>
 

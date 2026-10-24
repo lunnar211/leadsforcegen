@@ -34,7 +34,7 @@ export default function SiteBanner() {
   return (
     <div
       className="relative py-2 text-white"
-      style={{ background: notice.kind === "maintenance" ? "var(--danger)" : "linear-gradient(90deg, var(--accent), var(--cta))" }}
+      style={{ background: notice.kind === "maintenance" ? "var(--danger)" : "var(--accent)" }}
       role="status"
     >
       {notice.link ? <a href={notice.link} className="block text-white no-underline">{inner}</a> : inner}

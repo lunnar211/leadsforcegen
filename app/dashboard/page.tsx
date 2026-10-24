@@ -27,7 +27,7 @@ function GuestOverview() {
   ];
   return (
     <section className="card mt-6 p-6 sm:p-8" aria-label="Sign in to search leads">
-      <span className="inline-flex items-center justify-center rounded-[10px] p-[9px] text-white shadow-md" style={{ background: "linear-gradient(135deg, var(--accent), var(--cta))" }} aria-hidden="true">
+      <span className="inline-flex items-center justify-center rounded-[10px] p-[9px] text-white shadow-md" style={{ background: "var(--accent)" }} aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
       </span>
       <h2 className="mt-4 text-2xl font-extrabold tracking-tight text-fg">Lead search is for members</h2>
