@@ -829,7 +829,9 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         } catch { /* robots/blocked/dead — skip quietly */ }
         // After the homepage: if no email yet, ask the sitemap where the
         // real contact page lives and queue it ahead of the guesses.
-        if (pi === 0 && homeOrigin && !e.email && paths.length < 7) {
+        // Deadline-checked (2026-10-25): this fetch ran even after the
+        // deadline passed, adding a 5s overshoot to the last batch.
+        if (pi === 0 && homeOrigin && !e.email && paths.length < 7 && Date.now() <= deadline) {
           const discovered = await discoverContactPages(homeOrigin);
           for (const u of discovered) {
             if (!paths.includes(u) && paths.length < 7) paths.splice(1, 0, u);
@@ -849,6 +851,11 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     }
 
     const leads: Lead[] = [];
+    // Precise-map tracker (2026-10-25): stays true only if every
+    // returned lead came from a precise-tag map candidate. The AI
+    // filter below is skipped in that case — the tag already proves
+    // the trade and the tile already proves the city.
+    let allMapPrecise = true;
     const pendingMx: { idx: number; email: string }[] = [];
     for (let idx = 0; idx < candidates.length; idx++) {
       const c = candidates[idx];
@@ -890,6 +897,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         sourceUrl: c.sourceUrl || `https://www.openstreetmap.org/${c.el.type}/${c.el.id}`,
         sourceName: c.sourceName || "OpenStreetMap",
       });
+      if (!(c.precise && (c.sourceName || "OpenStreetMap").startsWith("OpenStreetMap"))) allMapPrecise = false;
       if (email) pendingMx.push({ idx: leads.length - 1, email });
       if (leads.length >= limit) break;
     }
@@ -924,17 +932,24 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // stored-DB results: those rows are already category-matched and
     // bbox-matched, so there is nothing for the filter to catch — and
     // skipping it keeps covered-city searches off the Groq round-trip.
+    // Also skipped when every returned lead is a precise-tag map result
+    // (same reasoning: tag + tile already guarantee trade + city).
     let aiFiltered = 0;
     try {
       // BUDGET RACE (2026-10-25): the filter's own 12s timeout could land
       // after the MX phase and push the route past the 60s serverless
-      // limit. Race it against the time left until 44s from engine
-      // start (tightened from 54s after the 42s caps still 504'd),
-      // leaving ~16s for the route + cold start; a timeout fails open
-      // via the catch below, exactly like a missing key.
-      const budgetLeft = 44_000 - (Date.now() - startedAt);
+      // limit. Race it against the time left until 38s from engine
+      // start (tightened 54s -> 44s -> 38s: the 44s race still 504'd
+      // on London restaurants once cold start + route work were
+      // added), leaving ~22s for the route + cold start; a timeout
+      // fails open via the catch below, exactly like a missing key.
+      // SKIP (2026-10-25): when every returned lead is a precise-tag
+      // map result, the filter has nothing to catch — the tag IS the
+      // trade and the tile IS the city — so skip the round-trip
+      // entirely. This is the saturated dense-city case.
+      const budgetLeft = 38_000 - (Date.now() - startedAt);
       const v =
-        elements.length || cseRows.length
+        (elements.length || cseRows.length) && !allMapPrecise
           ? budgetLeft > 2000
             ? await Promise.race([
                 aiVerifyLeads(leads, niche, location),
