@@ -21,7 +21,7 @@ type Toast = { kind: "success" | "error"; text: string } | null;
 // check runs either — the page shows a loading card until auth is known).
 function GuestOverview() {
   const points = [
-    "1,000,000+ verified businesses — UAE · Nepal · New York · Seattle, any country added on request",
+    "1.1M+ real businesses — UAE · Nepal · New York · Seattle · Karachi · Dhaka, more added regularly",
     "Phone, email, website and social links for every lead, each with its source",
     "Free plan: 30 leads every day · Pro: unlimited* searches + Excel export",
   ];

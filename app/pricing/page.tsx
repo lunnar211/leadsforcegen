@@ -24,6 +24,12 @@ const PRO_FEATURES = [
   "Priority on new cities as coverage expands",
 ];
 
+function Check() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0 text-success" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11" /></svg>
+  );
+}
+
 export default function PricingPage() {
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
@@ -38,22 +44,23 @@ export default function PricingPage() {
           <p className="mt-2 text-3xl font-extrabold text-fg">$0 <span className="text-base font-medium text-muted">forever</span></p>
           <ul className="mt-4 space-y-2 text-sm text-fg">
             {FREE_FEATURES.map((f) => (
-              <li key={f}>✓ {f}</li>
+              <li key={f} className="flex gap-2"><Check />{f}</li>
             ))}
           </ul>
-          <Link href="/signup" className="btn-ghost mt-6 inline-block px-6">Create free account</Link>
+          <Link href="/signup" className="btn-ghost btn-block mt-6">Create free account</Link>
         </div>
 
-        <div className="card p-6">
+        <div className="card relative p-6" style={{ borderColor: "var(--cta)", borderWidth: 2 }}>
+          <span className="absolute -top-3 right-5 rounded-full px-3 py-1 text-xs font-bold text-cta-fg" style={{ background: "var(--cta)" }}>Most popular</span>
           <h2 className="text-xl font-bold text-fg">Pro</h2>
           <p className="mt-2 text-3xl font-extrabold text-fg">$19 <span className="text-base font-medium text-muted">/ month</span></p>
           <p className="mt-1 text-sm text-muted">or NPR 2,399 / month, 6,499 / 3 months, 19,999 / 12 months via eSewa, Khalti or bank transfer.</p>
           <ul className="mt-4 space-y-2 text-sm text-fg">
             {PRO_FEATURES.map((f) => (
-              <li key={f}>✓ {f}</li>
+              <li key={f} className="flex gap-2"><Check />{f}</li>
             ))}
           </ul>
-          <Link href="/checkout" className="btn-cta mt-6 inline-block px-6">Go Pro</Link>
+          <Link href="/checkout" className="btn-cta btn-block mt-6">Go Pro</Link>
         </div>
       </div>
 
