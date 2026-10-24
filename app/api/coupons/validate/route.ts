@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { getAuthUser, serviceClient } from "@/lib/quota";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 // Validates a coupon code for a signed-in user. Returns ONLY the percent
 // — the payable amount is always recomputed server-side at checkout
 // (see the manual-proof route); a client can never set its own price.
+// Throttled (sweep finding S2): 20 rapid bogus guesses previously all
+// returned 404 with no slowdown. 10 checks/minute per IP now; the 11th
+// gets a 429. Guessing still can't succeed — it just can't run hot.
 export async function POST(req: Request) {
+  if (!(await rateLimit(`coupon-validate:${clientIp(req)}`, 10, 60_000))) {
+    return NextResponse.json({ ok: false, error: "Too many code checks. Try again in a minute." }, { status: 429 });
+  }
   const user = await getAuthUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Sign in first." }, { status: 401 });
   const admin = serviceClient();

@@ -119,7 +119,7 @@ export default function AdminPanel() {
                 {cards.map(([k, v]) => (
                   <div key={k} className="card card-hover relative overflow-hidden p-4 sm:p-5">
                     <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: "linear-gradient(90deg, var(--accent), var(--cta))" }} aria-hidden="true" />
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{k}</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">{k}</p>
                     <p className="mt-1.5 text-3xl font-extrabold tracking-tight text-fg">{v}</p>
                   </div>
                 ))}
@@ -173,7 +173,7 @@ export default function AdminPanel() {
               <div className="card mt-3 overflow-x-auto">
                 <table className="w-full min-w-[640px] text-sm">
                   <thead className="bg-surface text-left">
-                    <tr className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+                    <tr className="text-xs font-bold uppercase tracking-[0.12em] text-muted">
                       <th className="px-4 py-3">Email</th><th className="px-4 py-3">Plan</th><th className="hidden px-4 py-3 md:table-cell">Role</th><th className="px-4 py-3">Status</th><th className="hidden px-4 py-3 md:table-cell">Joined</th><th className="px-4 py-3">Controls</th>
                     </tr>
                   </thead>

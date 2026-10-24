@@ -3,9 +3,15 @@ import { type Lead } from "@/lib/types";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { consumeQuota, getAuthUser, getUsage, quotaConfigured } from "@/lib/quota";
 import { normalizeNiche, searchEverywhere, type EngineResult } from "@/lib/engine/search";
+import { filterBlocked, getBlocklist } from "@/lib/engine/blocklist";
 import { cacheGet, cacheSet } from "@/lib/cache";
 
 export const maxDuration = 60;
+
+// One wording for every quota rejection (the sweep found two variants).
+function quotaExceededMsg(limit: number, plan: string): string {
+  return `Daily limit reached (${limit} leads on the ${plan} plan). Upgrade to Pro for more.`;
+}
 
 
 async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
@@ -153,7 +159,21 @@ async function handlePost(req: Request) {
   if (!(await rateLimit(`ai-leads:${clientIp(req)}`, 20, 60_000))) {
     return NextResponse.json({ ok: false, error: "Rate limit exceeded. Try again in a minute." }, { status: 429 });
   }
-  const body = await req.json().catch(() => ({}));
+  // Malformed JSON is a client error, not an empty search: the old
+  // catch-all silently treated `{invalid json` as "no input" and
+  // returned a 200 honest-empty (sweep finding S3).
+  let body: Record<string, string>;
+  try {
+    const parsed = await req.json();
+    body = {};
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === "string") body[k] = v;
+      }
+    }
+  } catch {
+    return NextResponse.json({ ok: false, error: "Request body must be valid JSON." }, { status: 400 });
+  }
 
   // Server-side quota (active when Supabase is configured): the caller's
   // plan and daily limit come from Postgres, never from the client.
@@ -167,7 +187,7 @@ async function handlePost(req: Request) {
     if (!usage) return NextResponse.json({ ok: false, error: "Could not check your quota." }, { status: 502 });
     if (usage.remaining <= 0) {
       return NextResponse.json(
-        { ok: false, code: "QUOTA_EXCEEDED", error: `Daily limit reached (${usage.limit} leads on the ${usage.plan} plan). Upgrade to Pro for more.` },
+        { ok: false, code: "QUOTA_EXCEEDED", error: quotaExceededMsg(usage.limit, usage.plan) },
         { status: 429 },
       );
     }
@@ -182,6 +202,19 @@ async function handlePost(req: Request) {
   // fallback was removed 2026-10-23, once the stored database went live).
   const niche = String(body.industry || body.leadType || "");
   const where = String(body.location || "");
+  // Server-side empty-input validation (sweep finding B1): the dashboard
+  // blocks blank searches client-side, but the API answered them with a
+  // 200 honest-empty. Blank industry or location is a 400 now.
+  if (!niche.trim() || !where.trim()) {
+    return NextResponse.json(
+      { ok: false, error: "Tell us what you're looking for and where — industry and location are both required." },
+      { status: 400 },
+    );
+  }
+  // Unsubscribe blocklist, fetched once per request and applied to every
+  // result below (engine, cached, and AI) BEFORE quota is consumed, so a
+  // blocked business never costs the searcher a credit.
+  const blocklist = await getBlocklist();
   const want = quotaUser ? quotaUser.remaining : 10;
   // Whole-search cache (6h): the same niche+city search is the most
   // common repeat request — a hit answers in well under a second instead
@@ -198,14 +231,28 @@ async function handlePost(req: Request) {
     engine = await searchEverywhere(niche, where, limitWanted);
     if (engine.leads.length > 0) void cacheSet(searchKey, engine);
   }
+  // Filtering at response time (not at cache time) so a cached result can
+  // never resurrect a business that unsubscribed after it was cached.
+  engine = { ...engine, leads: filterBlocked(engine.leads, blocklist) };
   if (engine.leads.length > 0) {
     const withEmail = engine.leads.filter((l) => l.email).length;
     const withPhone = engine.leads.filter((l) => l.phone).length;
-    const note = `${engine.resolvedNiche ? `Showing ${engine.resolvedNiche} for "${niche}": ` : ""}Found ${engine.leads.length} real businesses from public business listings (Overture Maps + OpenStreetMap) and their own websites${fromCache ? " (served from the results cache, refreshed every few hours)" : `, ${engine.pagesRead} pages read`}${engine.aiFiltered ? `, AI originality check removed ${engine.aiFiltered} off-topic listing${engine.aiFiltered === 1 ? "" : "s"}` : ""}. Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and listing source. Verify before outreach.`;
+    // Interpretation line built at RESPONSE time from the request's raw
+    // niche (sweep finding B2): a cached hit previously lost the
+    // "Showing X for Y" prefix because it reused the first search's
+    // resolution. Now "DANTIST" and "car owners" both show what they
+    // were searched as, fresh or cached.
+    const searched = engine.resolvedNiche || normalizeNiche(niche);
+    const prefix = searched !== niche ? `Showing ${searched} for "${niche}": ` : "";
+    const note = `${prefix}Found ${engine.leads.length} real businesses from public business listings (Overture Maps + OpenStreetMap) and their own websites${fromCache ? " (served from the results cache, refreshed every few hours)" : `, ${engine.pagesRead} pages read`}${engine.aiFiltered ? `, AI originality check removed ${engine.aiFiltered} off-topic listing${engine.aiFiltered === 1 ? "" : "s"}` : ""}. Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and listing source. Verify before outreach.`;
     if (quotaUser) {
       const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
       if (!consumed) {
-        return NextResponse.json({ ok: false, code: "QUOTA_EXCEEDED", error: "Daily limit reached. Upgrade to Pro for more." }, { status: 429 });
+        const u2 = await getUsage(quotaUser.id);
+        return NextResponse.json(
+          { ok: false, code: "QUOTA_EXCEEDED", error: u2 ? quotaExceededMsg(u2.limit, u2.plan) : "Daily limit reached. Upgrade to Pro for more." },
+          { status: 429 },
+        );
       }
       const usage = await getUsage(quotaUser.id);
       return NextResponse.json({ ok: true, leads: engine.leads, source: "search-everywhere", note, usage: { configured: true, ...usage } });
@@ -227,13 +274,14 @@ async function handlePost(req: Request) {
   let note: string;
   if (ai) {
     const filtered = await aiFilter(ai, niche, where);
-    leads = filtered.leads;
+    leads = filterBlocked(filtered.leads, blocklist);
     source = filtered.by ? `${aiSource}+${filtered.by}-filter` : aiSource;
     note = `AI-generated company prospects (${aiSource}${filtered.by ? `, relevance-filtered by ${filtered.by}` : ""}). Verify every lead before outreach — do not treat AI output as verified contact data.`;
   } else {
     leads = [];
     source = "none";
-    note = `No real businesses found for "${niche}"${engine.resolvedNiche ? ` (searched as "${engine.resolvedNiche}")` : ""} in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York and Seattle (1,000,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
+    const searchedEmpty = engine.resolvedNiche || normalizeNiche(niche);
+    note = `No real businesses found for "${niche}"${searchedEmpty !== niche ? ` (searched as "${searchedEmpty}")` : ""} in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York and Seattle (1,000,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
   }
 
   if (leads.length === 0) {
@@ -249,8 +297,9 @@ async function handlePost(req: Request) {
     leads = leads.slice(0, quotaUser.remaining);
     const consumed = await consumeQuota(quotaUser.id, leads.length);
     if (!consumed) {
+      const u2 = await getUsage(quotaUser.id);
       return NextResponse.json(
-        { ok: false, code: "QUOTA_EXCEEDED", error: "Daily limit reached. Upgrade to Pro for more." },
+        { ok: false, code: "QUOTA_EXCEEDED", error: u2 ? quotaExceededMsg(u2.limit, u2.plan) : "Daily limit reached. Upgrade to Pro for more." },
         { status: 429 },
       );
     }

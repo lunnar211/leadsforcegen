@@ -69,9 +69,9 @@ export default function ManualPayment() {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; data?: { amount: number; currency: string } };
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; data?: { amount: number; currency: string; coupon_warning?: string; duplicate?: boolean } };
       if (res.ok && d.ok) {
-        setMsg(`Proof submitted for NPR ${d.data?.amount}. Status: pending review. The owner approves payments manually — Pro activates on your account once approved.`);
+        setMsg(`Proof submitted for NPR ${d.data?.amount}. Status: pending review. The owner approves payments manually — Pro activates on your account once approved.${d.data?.duplicate ? " (This proof was already pending, so no second record was created.)" : ""}${d.data?.coupon_warning ? ` Note: ${d.data.coupon_warning}` : ""}`);
         setFile(null);
       } else {
         setMsg(d.error || "Submission failed. Please try again.");

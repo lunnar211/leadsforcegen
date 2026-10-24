@@ -18,6 +18,23 @@ alter table if exists profiles add column if not exists created_at timestamptz n
 alter table if exists payments add column if not exists method text;
 alter table if exists payments add column if not exists months int;
 alter table if exists payments add column if not exists proof_path text;
+-- 2026-10-24 security fixes: SHA-256 of the uploaded proof file, used to
+-- reject duplicate pending proofs from the same user (sweep finding P1).
+alter table if exists payments add column if not exists proof_hash text;
+create index if not exists idx_payments_proof_hash on payments (user_id, proof_hash, status);
+
+-- 2026-10-24 security fixes: durable admin-login failure counters.
+-- The old counters lived in Upstash (unconfigured) or per-instance
+-- memory, so the 5-fail/15-min lockout never engaged on serverless.
+-- This table is shared across instances; RLS is ON with no client
+-- policies, so only the service role can read/write it.
+create table if not exists admin_login_failures (
+  key text primary key,
+  failures int not null default 0,
+  locked_until timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table admin_login_failures enable row level security;
 -- Paddle added as a gateway (2026-10-23): widen the gateway CHECK on
 -- databases created before Paddle existed.
 alter table if exists payments drop constraint if exists payments_gateway_check;

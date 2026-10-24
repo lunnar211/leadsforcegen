@@ -50,14 +50,14 @@ export const metadata: Metadata = {
     description:
       "Find verified B2B leads by industry and city — phone, email, website and social links included. Free: 30 leads a day.",
     url: SITE_URL,
-    images: [{ url: "/og.png", width: 2240, height: 1120, alt: "LeadsForceGen — verified B2B leads" }],
+    images: [{ url: "/og.jpg", width: 1200, height: 630, alt: "LeadsForceGen — verified B2B leads" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "LeadsForceGen — AI Lead Generation Tool",
     description:
       "Find verified B2B leads by industry and city. Free: 30 leads a day. Pro: unlimited searches + exports.",
-    images: ["/og.png"],
+    images: ["/og.jpg"],
   },
 };
 
@@ -106,6 +106,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Product</p>
               <ul className="mt-3 space-y-2 text-sm">
                 <li><a className="text-muted hover:text-fg" href="/dashboard">Dashboard</a></li>
+                <li><a className="text-muted hover:text-fg" href="/pricing">Pricing</a></li>
                 <li><a className="text-muted hover:text-fg" href="/signup">Start free</a></li>
                 <li><a className="text-muted hover:text-fg" href="/checkout">Go Pro — $19/mo</a></li>
               </ul>

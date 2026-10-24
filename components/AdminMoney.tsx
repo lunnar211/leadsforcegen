@@ -100,7 +100,7 @@ export default function AdminMoney() {
 
   return (
     <section aria-label="Money management">
-      <h2 className="font-semibold text-fg mt-10">💰 Money management</h2>
+      <h2 className="font-semibold text-fg mt-10">Money management</h2>
       <p className="mt-1 text-sm text-muted">
         Revenue counts only <b className="text-fg">captured</b> payments — money verified server-side (gateway webhook/signature, or your approval of a manual proof).
         Amounts are never mixed across currencies.

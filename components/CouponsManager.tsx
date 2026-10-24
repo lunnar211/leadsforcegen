@@ -65,7 +65,7 @@ export default function CouponsManager() {
       <div className="card mt-4 overflow-x-auto">
         <table className="w-full min-w-[560px] text-sm">
           <thead className="bg-surface text-left">
-            <tr className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+            <tr className="text-xs font-bold uppercase tracking-[0.12em] text-muted">
               <th className="px-4 py-3">Code</th><th className="px-4 py-3">Discount</th><th className="px-4 py-3">Used</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Controls</th>
             </tr>
           </thead>

@@ -97,7 +97,7 @@ function DashboardMock() {
               <span className="ml-auto shrink-0 rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: "var(--success-bg)", color: "var(--success)" }}>{l.score} fit</span>
             </div>
           ))}
-          <p className="pt-1 text-center text-[11px] text-muted">Real businesses from the live LeadsForceGen database</p>
+          <p className="pt-1 text-center text-xs text-muted">Real businesses from the live LeadsForceGen database</p>
         </div>
       </div>
     </div>
@@ -151,7 +151,7 @@ export default function Home() {
             ))}
           </dl>
 
-          <p className="mt-12 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+          <p className="mt-12 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
             Built on public business data · Overture Maps · OpenStreetMap · each business&rsquo;s own website
           </p>
         </section>

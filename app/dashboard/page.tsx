@@ -423,7 +423,7 @@ export default function Dashboard() {
             </div>
             <button type="submit" disabled={loading} className="btn-primary btn-block" aria-busy={loading}>
               {loading && <span className="spinner" aria-hidden="true" />}
-              {loading ? "Searching…" : "🔍 Find leads"}
+              {loading ? "Searching…" : (<><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="mr-2 inline h-4 w-4"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>Find leads</>)}
             </button>
             {loading && (
               <p className="text-center text-xs text-muted" role="status">

@@ -744,16 +744,16 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     }
 
     const leads: Lead[] = [];
+    const pendingMx: { idx: number; email: string }[] = [];
     for (let idx = 0; idx < candidates.length; idx++) {
       const c = candidates[idx];
       const e = enriched[idx];
       const email = e.email;
       const phone = e.phone;
       const websiteAlive = e.websiteAlive;
-      // Verify (never invent): does the published email's domain accept mail?
-      const mxOk = email ? await emailDomainHasMx(email) : false;
       const socials = [...new Set([...(c.socialsSeed || []), ...e.socials])];
-      // Confidence (subset of the spec formula, honestly applied):
+      // Confidence (subset of the spec formula, honestly applied).
+      // The MX bonus (+5) is applied in the parallel phase below.
       let score = 10; // real business name from a public source
       if (e.address) score += 20;
       if (phone) score += 20;
@@ -761,7 +761,6 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (email) score += 15;
       if (email && c.website && email.endsWith(`@${domainOf(c.website)}`)) score += 5;
       if (e.structured) score += 5; // contact came from the business's own structured data
-      if (mxOk) score += 5; // email domain verified to accept mail (MX records)
       if (socials.length) score += 5; // business publishes its social profiles
       if (c.confidence) score += Math.round(c.confidence * 5); // listing-source confidence (stored listings)
       if (c.precise) score += 10; // canonical OSM tag match (amenity=dentist etc.)
@@ -776,7 +775,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         location: e.address || location,
         size: "",
         website: c.website ? domainOf(c.website) : "",
-        description: `Real business found via ${c.sourceName || "OpenStreetMap"}${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}. Contacts are published by the business itself${mxOk ? "; email domain verified (accepts mail)" : ""} — verify before outreach.`,
+        description: `Real business found via ${c.sourceName || "OpenStreetMap"}${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}. Contacts are published by the business itself — verify before outreach.`,
         score,
         email,
         phone,
@@ -786,7 +785,29 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         sourceUrl: c.sourceUrl || `https://www.openstreetmap.org/${c.el.type}/${c.el.id}`,
         sourceName: c.sourceName || "OpenStreetMap",
       });
+      if (email) pendingMx.push({ idx: leads.length - 1, email });
       if (leads.length >= limit) break;
+    }
+    // MX phase (2026-10-24 speed fix): the old loop awaited one DNS MX
+    // lookup per lead IN SEQUENCE — 30 serial DNS round-trips on every
+    // search. Same-domain lookups are already deduped by the mxCache;
+    // distinct domains now resolve 8 at a time. A soft deadline keeps a
+    // slow DNS day from pushing the route into a serverless timeout:
+    // leads past it simply skip the +5 bonus, never the result.
+    const mxDeadline = startedAt + 50_000;
+    for (let i = 0; i < pendingMx.length; i += 8) {
+      if (Date.now() > mxDeadline) break;
+      const batch = pendingMx.slice(i, i + 8);
+      const results = await Promise.all(batch.map((p) => emailDomainHasMx(p.email).catch(() => false)));
+      results.forEach((ok, j) => {
+        if (!ok) return;
+        const lead = leads[batch[j].idx];
+        lead.score = Math.min(100, (lead.score || 0) + 5);
+        lead.description = lead.description.replace(
+          " — verify before outreach.",
+          "; email domain verified (accepts mail) — verify before outreach.",
+        );
+      });
     }
     leads.sort((a, b) => b.score - a.score);
     // AI originality filter (env-gated, fail-open): one batched Groq

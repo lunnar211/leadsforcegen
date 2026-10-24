@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { consumeQuota, getAuthUser, getUsage, quotaConfigured } from "@/lib/quota";
 import { leadFromWebsite } from "@/lib/engine/site";
+import { getBlocklist, isBlocked } from "@/lib/engine/blocklist";
 
 // One-click website extraction: paste a business website, get the lead
 // that business publishes on its own pages. Same auth + server-side
@@ -39,6 +40,11 @@ export async function POST(req: Request) {
     const { lead, reason } = await leadFromWebsite(target);
     if (!lead) {
       return NextResponse.json({ ok: false, error: reason || "No lead could be extracted from that website." }, { status: 422 });
+    }
+    // An unsubscribed business is excluded from every result, including
+    // an explicit extraction — and it costs no quota.
+    if (isBlocked(lead, await getBlocklist())) {
+      return NextResponse.json({ ok: false, error: "This business has asked not to be listed, so it can't be extracted." }, { status: 403 });
     }
 
     if (userId) {
