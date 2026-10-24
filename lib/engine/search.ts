@@ -339,9 +339,9 @@ async function overpass(lat: number, lon: number, niche: string, terms: string[]
 async function osmApiFallback(lat: number, lon: number): Promise<OsmElement[]> {
   const base = process.env.OSM_API_URL || "https://api.openstreetmap.org/api/0.6";
   const d = 0.055; // tile half-box (~6 km); grid covers +/-0.11 deg (~12 km)
-  const tile = async (cLat: number, cLon: number): Promise<(OsmElement & { nodes?: number[] })[]> => {
+  const tile = async (cLat: number, cLon: number, half: number = d): Promise<(OsmElement & { nodes?: number[] })[]> => {
     try {
-      const url = `${base}/map.json?bbox=${cLon - d},${cLat - d},${cLon + d},${cLat + d}`;
+      const url = `${base}/map.json?bbox=${cLon - half},${cLat - half},${cLon + half},${cLat + half}`;
       const res = await fetch(url, {
         headers: { "User-Agent": UA, Accept: "application/json" },
         signal: AbortSignal.timeout(12000),
@@ -363,7 +363,21 @@ async function osmApiFallback(lat: number, lon: number): Promise<OsmElement[]> {
     if (s.status !== "fulfilled") continue;
     for (const el of s.value) byKey.set(`${el.type}/${el.id}`, el);
   }
-  const els = [...byKey.values()];
+  let els = [...byKey.values()];
+  // DENSE-CITY CENTER TILE (2026-10-24, measured): in dense cities
+  // every 0.11° tile 400s on the API's 50k-node limit, so the grid
+  // returns nothing — and with Overpass dead from datacenter IPs
+  // (proven by leg-labeled probe 2026-10-25) the search is empty.
+  // A 0.0017° center tile (~0.38×0.24 km) answers in ~10s / 2.9 MB:
+  // grid fails fast at ~3s, so grid + center tile ≈ 13s, inside the
+  // 15s map cap. It covers only the center point, not the whole city
+  // — a stopgap that makes dense cities non-empty, not a full-city
+  // answer. Fires only when the grid yields nothing.
+  if (els.length === 0) {
+    const centerEls = await tile(lat, lon, 0.0017);
+    for (const el of centerEls) byKey.set(`${el.type}/${el.id}`, el);
+    els = [...byKey.values()];
+  }
   const coords = new Map<number, { lat: number; lon: number }>();
   for (const el of els) {
     if (el.type === "node" && el.lat !== undefined && el.lon !== undefined) coords.set(el.id, { lat: el.lat, lon: el.lon });
