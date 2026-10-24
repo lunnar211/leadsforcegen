@@ -278,13 +278,15 @@ async function handlePost(req: Request) {
   // AI filter (Gemini, Groq backup) which drops off-topic results and
   // re-scores the rest — it never adds data.
   // WALL CLOCK (2026-10-25): this chain's worst case is 44s (Groq 12s
-  // + Gemini 12s + filter up to 20s). After a cold start + discovery
-  // it pushed the function past the 60s serverless limit — the
-  // restaurants/London 504s. Race the whole chain against the time
-  // left until 52s from function start; on timeout, fall through to
-  // the honest-empty result. A fast honest answer always beats a
-  // killed request.
-  const aiBudget = 52_000 - (Date.now() - t0);
+  // + Gemini 12s + filter up to 20s). A 52s race cap plus ANY server
+  // wake-up time plus response assembly mathematically exceeds the
+  // 60s serverless limit on cold instances — the restaurants/London
+  // 504s. Race the whole chain against the time left until 44s from
+  // function start (exactly the chain's own worst case, so no chain
+  // that could have succeeded is cut short); on timeout, fall
+  // through to the honest-empty result. A fast honest answer always
+  // beats a killed request.
+  const aiBudget = 44_000 - (Date.now() - t0);
   let aiResult: { leads: Lead[]; source: string; note: string } | null = null;
   if (aiBudget > 3000) {
     try {
