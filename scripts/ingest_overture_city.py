@@ -15,6 +15,14 @@ become a lead pack. Two modes:
       Files are the warehouse; only fitting packs get promoted to the
       hot `places` table.
 
+  python3 scripts/ingest_overture_city.py --per-part karachi dhaka
+      Same output, but one bbox query per release part file, with a
+      per-part retry and a .done resume marker per part. Use this when
+      the single full-release scan times out or the run keeps getting
+      killed: a rerun skips finished parts instead of restarting the
+      whole scan. Part files live in data/parts/ and are concatenated
+      into the final CSV at the end.
+
 City boxes are centre + radius (km) and intentionally generous: the
 engine's own radius filter (20 km) and dedupe still apply at search time.
 """
@@ -65,6 +73,11 @@ def connect():
             os.environ.pop(k, None)
     con = duckdb.connect()
     con.execute("LOAD httpfs;")
+    # The sandbox proxy is slow: DuckDB's default 30s per-request
+    # timeout trips on ordinary part-file reads ("Timeout was reached"
+    # killed the 2026-10-24 Karachi run). 300s per request is plenty
+    # for a batch extract and still fails fast on a genuinely dead peer.
+    con.execute("SET http_timeout=300;")
     if p.hostname:
         con.execute(f"SET http_proxy='{p.hostname}:{p.port}';")
         if p.username:
@@ -83,7 +96,8 @@ def box_expr(lat: float, lon: float, r_km: float) -> tuple[float, float, float, 
 def main() -> None:
     args = [a.lower() for a in sys.argv[1:]]
     counts_only = "--counts" in args
-    wanted = [a for a in args if a != "--counts"] or list(CITIES)
+    per_part = "--per-part" in args
+    wanted = [a for a in args if a not in ("--counts", "--per-part")] or list(CITIES)
     unknown = [a for a in wanted if a not in CITIES]
     if unknown:
         raise SystemExit(f"Unknown cities: {unknown}. Known: {sorted(CITIES)}")
@@ -161,10 +175,58 @@ def main() -> None:
           FROM base
         ) TO '{out}' (FORMAT CSV, HEADER)
         """
-        con.execute(q)
-        raw = open(out, "rb").read()
-        if b"\x00" in raw:
-            open(out, "wb").write(raw.replace(b"\x00", b""))
+        if not per_part:
+            con.execute(q)
+            raw = open(out, "rb").read()
+            if b"\x00" in raw:
+                open(out, "wb").write(raw.replace(b"\x00", b""))
+            n = sum(1 for _ in open(out)) - 1
+            print(f"{slug}: {n} rows -> {out} ({os.path.getsize(out) / 1_000_000:.1f} MB)")
+            continue
+        # Per-part mode: the same query, but one release part at a time,
+        # with a retry per part and a .done resume marker per part — so
+        # a timeout or a killed run only ever costs one part, and a
+        # rerun skips finished parts instead of restarting the scan.
+        parts_dir = os.path.join(out_dir, "parts")
+        os.makedirs(parts_dir, exist_ok=True)
+        part_files = []
+        for i, url in enumerate(urls):
+            part_out = os.path.join(parts_dir, f"places-city-{slug}-part{i:02d}.csv")
+            marker = part_out + ".done"
+            part_files.append(part_out)
+            if os.path.exists(marker):
+                print(f"{slug} part {i + 1}/{len(urls)}: skipped (done)")
+                continue
+            q_part = q.replace(f"read_parquet({lst})", f"read_parquet(['{url}'])")
+            q_part = q_part.replace(f"TO '{out}'", f"TO '{part_out}'")
+            for attempt in range(3):
+                try:
+                    if os.path.exists(part_out):
+                        os.remove(part_out)
+                    con.execute(q_part)
+                    break
+                except Exception as e:
+                    print(f"{slug} part {i + 1}/{len(urls)} attempt {attempt + 1} failed: {e}")
+                    if attempt == 2:
+                        raise
+                    import time as _t; _t.sleep(20)
+            raw = open(part_out, "rb").read()
+            if b"\x00" in raw:
+                open(part_out, "wb").write(raw.replace(b"\x00", b""))
+            open(marker, "w").write("ok")
+            pn = sum(1 for _ in open(part_out)) - 1
+            print(f"{slug} part {i + 1}/{len(urls)}: {pn} rows -> {part_out}")
+        # Concatenate: header from the first part, data rows from all.
+        # (Byte-level: Overture freeform addresses are single-line, and
+        # the existing row count already counts by lines.)
+        chunks = []
+        for j, p in enumerate(part_files):
+            raw = open(p, "rb").read()
+            if j > 0:
+                nl = raw.find(b"\n")
+                raw = raw[nl + 1:] if nl >= 0 else b""
+            chunks.append(raw)
+        open(out, "wb").write(b"".join(chunks))
         n = sum(1 for _ in open(out)) - 1
         print(f"{slug}: {n} rows -> {out} ({os.path.getsize(out) / 1_000_000:.1f} MB)")
 
