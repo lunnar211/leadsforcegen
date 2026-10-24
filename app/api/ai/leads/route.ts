@@ -201,7 +201,7 @@ async function handlePost(req: Request) {
   if (engine.leads.length > 0) {
     const withEmail = engine.leads.filter((l) => l.email).length;
     const withPhone = engine.leads.filter((l) => l.phone).length;
-    const note = `Found ${engine.leads.length} real businesses from public business listings (Overture Maps + OpenStreetMap) and their own websites${fromCache ? " (served from the results cache, refreshed every few hours)" : `, ${engine.pagesRead} pages read`}. Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and listing source. Verify before outreach.`;
+    const note = `Found ${engine.leads.length} real businesses from public business listings (Overture Maps + OpenStreetMap) and their own websites${fromCache ? " (served from the results cache, refreshed every few hours)" : `, ${engine.pagesRead} pages read`}${engine.aiFiltered ? `, AI originality check removed ${engine.aiFiltered} off-topic listing${engine.aiFiltered === 1 ? "" : "s"}` : ""}. Contact coverage: ${withEmail}/${engine.leads.length} publish an email, ${withPhone}/${engine.leads.length} publish a phone — businesses that don't publish contacts still show their website and listing source. Verify before outreach.`;
     if (quotaUser) {
       const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
       if (!consumed) {
@@ -233,7 +233,7 @@ async function handlePost(req: Request) {
   } else {
     leads = [];
     source = "none";
-    note = `No real businesses found for "${niche}" in "${where}" yet. The stored lead database currently covers the UAE and Nepal in full (224,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
+    note = `No real businesses found for "${niche}" in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York and Seattle (1,000,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
   }
 
   if (leads.length === 0) {

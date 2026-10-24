@@ -4,6 +4,7 @@ import { safeFetch } from "@/lib/safe-fetch";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { queryPlaces } from "@/lib/engine/placesDb";
 import { discoverViaCse } from "@/lib/engine/cse";
+import { aiVerifyLeads } from "@/lib/engine/verify";
 import type { Lead } from "@/lib/types";
 
 // Search Everywhere — phase 2 (public sources only, per policy):
@@ -431,7 +432,7 @@ export async function discoverContactPages(origin: string): Promise<string[]> {
   }
 }
 
-export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number };
+export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number };
 
 export async function searchEverywhere(niche: string, location: string, limit: number): Promise<EngineResult> {
   const empty: EngineResult = { leads: [], pagesRead: 0, placesFound: 0 };
@@ -441,9 +442,26 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     niche = normalizeNiche(niche);
     const geo = await geocode(location);
     if (!geo) return empty;
-    let elements = await overpass(geo.lat, geo.lon, niche, nicheTerms(niche));
-    if (!elements.length) elements = await osmApiFallback(geo.lat, geo.lon);
     const terms = nicheTerms(niche);
+    // All three discovery layers run CONCURRENTLY. The map layer is
+    // capped: Overpass mirrors + the OSM API fallback used to run
+    // sequentially and cost ~27s on an empty result; now they chain
+    // under one 15s budget and a timeout simply yields no map
+    // candidates (the stored DB + CSE still serve). Empty searches
+    // fail fast instead of burning the whole serverless budget.
+    const mapChain = (async () => {
+      const els = await overpass(geo.lat, geo.lon, niche, terms);
+      if (els.length) return els;
+      return osmApiFallback(geo.lat, geo.lon);
+    })();
+    const mapCap = new Promise<OsmElement[]>((r) => setTimeout(() => r([]), 15000));
+    const dbPromise = queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit).catch(() => []);
+    const csePromise = discoverViaCse(niche, location, limit).catch(() => []);
+    const [elements, dbPlaces, cseRows] = await Promise.all([
+      Promise.race([mapChain, mapCap]),
+      dbPromise,
+      csePromise,
+    ]);
     const precisePairs = new Set((NICHE_TAGS[niche] || []).map(([k, v]) => `${k}=${v}`));
 
     type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string; precise: boolean; distKm: number; socialsSeed?: string[]; sourceUrl?: string; sourceName?: string; confidence?: number };
@@ -494,8 +512,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // normalized name and by website domain; enrichment below still
     // reads their websites and can upgrade the email to the one the
     // business publishes itself.
-    try {
-      const dbPlaces = await queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit);
+    {
       const seenNames = new Set(candidates.map((c) => c.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
       for (const p of dbPlaces) {
         const key = p.name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -520,15 +537,14 @@ export async function searchEverywhere(niche: string, location: string, limit: n
           confidence: p.confidence,
         });
       }
-    } catch { /* listings DB unavailable — map sources still serve */ }
+    }
 
     // Discovery booster (env-gated): Google Programmable Search with
     // operator queries finds businesses the map databases miss. These
     // arrive with only a name + website — enrichment below reads their
     // own pages and verifies contacts exactly like every other source,
     // so a CSE candidate with no reachable site simply scores low.
-    try {
-      const cseRows = await discoverViaCse(niche, location, limit);
+    {
       const seenNames = new Set(candidates.map((c) => c.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
       for (const r of cseRows) {
         const key = r.name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -546,7 +562,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
           sourceName: "Google Programmable Search",
         });
       }
-    } catch { /* CSE unavailable — other sources still serve */ }
+    }
 
     // Rank before spending crawl budget: tag-precise businesses first,
     // then nearest to the searched center. Enrichment and final ordering
@@ -673,7 +689,19 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (leads.length >= limit) break;
     }
     leads.sort((a, b) => b.score - a.score);
-    return { leads, pagesRead, placesFound: candidates.length };
+    // AI originality filter (env-gated, fail-open): one batched Groq
+    // call drops listings that are clearly the wrong trade or the
+    // wrong city. It never adds or invents anything.
+    let aiFiltered = 0;
+    try {
+      const v = await aiVerifyLeads(leads, niche, location);
+      if (v.dropped > 0) {
+        leads.length = 0;
+        leads.push(...v.kept);
+        aiFiltered = v.dropped;
+      }
+    } catch { /* filter is best-effort; unfiltered results still serve */ }
+    return { leads, pagesRead, placesFound: candidates.length, aiFiltered };
   } catch {
     return empty;
   }
