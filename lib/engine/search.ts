@@ -659,6 +659,11 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+      // BUSINESS-ONLY (2026-10-25): the name match admitted non-business
+      // OSM objects — "Default access to school play grounds in England"
+      // is an access object, not a school. An element with none of the
+      // seven business tag keys is not a business, whatever its name says.
+      if (!tagValues) continue;
       // Precise = the business carries the niche's canonical OSM tag
       // (amenity=dentist), independent of what its name happens to say.
       const precise = Object.entries(t).some(([k, v]) => precisePairs.has(`${k}=${v}`));
@@ -890,7 +895,11 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // distinct domains now resolve 8 at a time. A soft deadline keeps a
     // slow DNS day from pushing the route into a serverless timeout:
     // leads past it simply skip the +5 bonus, never the result.
-    const mxDeadline = startedAt + 50_000;
+    // Lowered 2026-10-25 from 50s: with the AI filter's 12s tail after it,
+    // 50s left no room for the route under the 60s serverless limit
+    // (London restaurants 504'd twice). Leads past the deadline skip
+    // the +5 bonus, never the result.
+    const mxDeadline = startedAt + 42_000;
     for (let i = 0; i < pendingMx.length; i += 8) {
       if (Date.now() > mxDeadline) break;
       const batch = pendingMx.slice(i, i + 8);
@@ -914,9 +923,21 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // skipping it keeps covered-city searches off the Groq round-trip.
     let aiFiltered = 0;
     try {
-      const v = elements.length || cseRows.length
-        ? await aiVerifyLeads(leads, niche, location)
-        : { kept: leads, dropped: 0 };
+      // BUDGET RACE (2026-10-25): the filter's own 12s timeout could land
+      // after the MX phase and push the route past the 60s serverless
+      // limit. Race it against the time left until 54s from engine
+      // start, leaving ~6s for the route; a timeout fails open via the
+      // catch below, exactly like a missing key.
+      const budgetLeft = 54_000 - (Date.now() - startedAt);
+      const v =
+        elements.length || cseRows.length
+          ? budgetLeft > 2000
+            ? await Promise.race([
+                aiVerifyLeads(leads, niche, location),
+                new Promise<never>((_, rej) => setTimeout(() => rej(new Error("ai budget")), budgetLeft)),
+              ])
+            : { kept: leads, dropped: 0 }
+          : { kept: leads, dropped: 0 };
       if (v.dropped > 0) {
         leads.length = 0;
         leads.push(...v.kept);
