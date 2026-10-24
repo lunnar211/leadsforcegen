@@ -600,6 +600,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // discovery set, capped as before.
     const dbPlaces = await queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit).catch(() => []);
     let elements: OsmElement[] = [];
+    let mapLeg = "none";
     let cseRows: CseCandidate[] = [];
     if (dbPlaces.length < limit) {
       // FIND-ANYHOW (2026-10-24): Overpass mirrors reject datacenter IPs,
@@ -610,15 +611,26 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       // NON-EMPTY answer, capped at 15s.
       const nonEmpty = (p: Promise<OsmElement[]>) =>
         p.then((els) => (els.length ? els : Promise.reject(new Error("empty"))));
+      // LEG LABELING (2026-10-24): the race winner was invisible — both
+      // legs surfaced as plain "OpenStreetMap", so a dense-city failure
+      // could not say WHICH leg died. Tag each leg's result with its
+      // winner (request-scoped local, never module state) so the lead's
+      // provenance names the actual source. This is also better
+      // provenance for users, permanently.
       const mapChain = Promise.any([
-        nonEmpty(overpass(geo.lat, geo.lon, niche, terms)),
-        nonEmpty(osmApiFallback(geo.lat, geo.lon)),
-      ]).catch((): OsmElement[] => []);
-      const mapCap = new Promise<OsmElement[]>((r) => setTimeout(() => r([]), 15000));
-      [elements, cseRows] = await Promise.all([
+        nonEmpty(overpass(geo.lat, geo.lon, niche, terms)).then((els) => ({ els, leg: "overpass" })),
+        nonEmpty(osmApiFallback(geo.lat, geo.lon)).then((els) => ({ els, leg: "osm-api" })),
+      ]).catch(() => ({ els: [] as OsmElement[], leg: "none" }));
+      const mapCap = new Promise<{ els: OsmElement[]; leg: string }>((r) =>
+        setTimeout(() => r({ els: [], leg: "timeout" }), 15000),
+      );
+      const [mapWon, cseWon] = await Promise.all([
         Promise.race([mapChain, mapCap]),
         discoverViaCse(niche, location, limit).catch(() => []),
       ]);
+      elements = mapWon.els;
+      cseRows = cseWon;
+      mapLeg = mapWon.leg;
     }
     const precisePairs = new Set((NICHE_TAGS[niche] || []).map(([k, v]) => `${k}=${v}`));
 
@@ -660,6 +672,12 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         hours: t.opening_hours,
         precise,
         distKm,
+        sourceName:
+          mapLeg === "overpass"
+            ? "OpenStreetMap (Overpass)"
+            : mapLeg === "osm-api"
+              ? "OpenStreetMap (OSM API)"
+              : "OpenStreetMap",
       });
       if (candidates.length >= Math.max(limit * 3, 30)) break;
     }
