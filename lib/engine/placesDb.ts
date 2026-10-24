@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { serviceClient } from "@/lib/quota";
+import { serviceClient, supabaseFetch } from "@/lib/quota";
 
 // Second stored-data window (2026-10-25, owner decision: free only).
 // The main free project is nearly full, so city packs live in a second
@@ -11,7 +11,7 @@ function packsClient(): SupabaseClient | null {
   const url = process.env.SUPABASE_PACKS_URL;
   const key = process.env.SUPABASE_PACKS_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
+  return createClient(url, key, { auth: { persistSession: false }, global: { fetch: supabaseFetch } });
 }
 
 // Stored business listings: Overture Maps Places, ingested monthly into

@@ -597,6 +597,14 @@ export async function searchEverywhere(niche: string, location: string, limit: n
   // serverless limit and restaurants/London 504'd seven times.
   // Callers that omit the override get the old engine-entry behavior.
   const startedAt = startedAtOverride ?? Date.now();
+  // Phase timings (2026-10-25): server-side only, no user data —
+  // just phase names + ms + counts. The restaurants/London 504s
+  // survived every budget lever, so the next diagnosis needs to SEE
+  // where time actually goes instead of inferring it. These lines
+  // are what the Vercel function logs show for a timed-out request.
+  const tlog = (label: string, extra = "") => {
+    try { console.log(`[lfg-timing] ${label} ${Date.now() - startedAt}ms${extra ? ` ${extra}` : ""}`); } catch { /* logging never breaks a search */ }
+  };
   let resolvedNiche: string | undefined;
   let broadLocation = false;
   try {
@@ -609,6 +617,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     if (resolved.mapped && niche.toLowerCase() !== rawNiche.toLowerCase().trim()) resolvedNiche = niche;
     const geo = await geocode(location);
     if (!geo) return { ...empty, resolvedNiche };
+    tlog("geocode", `broad=${geo.broad}`);
     broadLocation = geo.broad;
     const terms = nicheTerms(niche);
     // SPEED (2026-10-24): the stored DB answers in milliseconds, but
@@ -619,6 +628,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // is milliseconds). Empty/uncovered searches still run the full
     // discovery set, capped as before.
     const dbPlaces = await queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit).catch(() => []);
+    tlog("db", `rows=${dbPlaces.length}`);
     let elements: OsmElement[] = [];
     let mapLeg = "none";
     let cseRows: CseCandidate[] = [];
@@ -655,6 +665,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       elements = mapWon.els;
       cseRows = cseWon;
       mapLeg = mapWon.leg;
+      tlog("map", `leg=${mapLeg} els=${elements.length} cse=${cseRows.length}`);
     }
     const precisePairs = new Set((NICHE_TAGS[niche] || []).map(([k, v]) => `${k}=${v}`));
 
@@ -781,14 +792,13 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // keep a safety margin under the 60s serverless limit. Partial
     // results beat a killed request (which users see as a bare
     // "network error").
-    // Tightened 2026-10-25 from 38s, then 28s: the saturated case (many
-    // candidates) ran the full deadline plus MX/AI/route/cold-start and
-    // 504'd on London restaurants even after the filter skip. The
-    // inferred cold start (~20s: 60.7s observed minus ~38s engine minus
-    // ~2s route) leaves no room for a 28s crawl. 24s keeps the crawl
-    // window (~10s after the map phase) for the top candidates — the
-    // ones actually returned — while fitting a cold instance.
-    const deadline = startedAt + 24_000;
+    // Tightened 2026-10-25 from 38s -> 28s -> 24s -> 20s: the saturated
+    // case kept 504ing (nine timeouts on restaurants/London) because
+    // the server's wake-up time sits outside every deadline measured
+    // from request handling. 20s keeps a crawl window for the top
+    // candidates — the ones actually returned — while leaving margin
+    // for that invisible wake-up cost.
+    const deadline = startedAt + 20_000;
     let pagesRead = 0;
     type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean; socials: string[] };
     const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false, socials: [] }));
@@ -864,6 +874,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       if (Date.now() > deadline) break;
       await Promise.all(candidates.slice(i, i + 4).map((_, j) => enrichOne(i + j)));
     }
+    tlog("enrich", `pages=${pagesRead} cands=${candidates.length}`);
 
     const leads: Lead[] = [];
     // Precise-map tracker (2026-10-25): stays true only if every
@@ -922,10 +933,11 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // distinct domains now resolve 8 at a time. A soft deadline keeps a
     // slow DNS day from pushing the route into a serverless timeout:
     // leads past it simply skip the +5 bonus, never the result.
-    // Lowered 2026-10-25 from 50s -> 42s -> 34s -> 28s: the saturated
-    // case still 504'd once route work + cold start were added.
-    // Leads past the deadline skip the +5 bonus, never the result.
-    const mxDeadline = startedAt + 28_000;
+    // Lowered 2026-10-25 from 50s -> 42s -> 34s -> 28s -> 24s: the
+    // saturated case still 504'd once route work + cold start were
+    // added. Leads past the deadline skip the +5 bonus, never the
+    // result.
+    const mxDeadline = startedAt + 24_000;
     for (let i = 0; i < pendingMx.length; i += 8) {
       if (Date.now() > mxDeadline) break;
       const batch = pendingMx.slice(i, i + 8);
@@ -940,6 +952,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         );
       });
     }
+    tlog("mx", `leads=${leads.length}`);
     leads.sort((a, b) => b.score - a.score);
     // AI originality filter (env-gated, fail-open): one batched Groq
     // call drops listings that are clearly the wrong trade or the

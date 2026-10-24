@@ -12,18 +12,33 @@ export function quotaConfigured(): boolean {
   );
 }
 
+// TIMEOUT (2026-10-25): supabase-js sets NO fetch timeout, so it was
+// the only unbounded network call in the search path — every other
+// call (safeFetch 5s, CSE 6s, Groq 12s, Gemini 10s, MX 3s) is capped.
+// A hung Supabase query could run until Vercel killed the request,
+// past every engine deadline (deadlines only fire BETWEEN awaited
+// calls). Bound every Supabase fetch at 8s: a timed-out query fails
+// closed (all callers already treat Supabase errors as empty) instead
+// of hanging the search.
+export const supabaseFetch: typeof fetch = (input, init) => {
+  const timeout = AbortSignal.timeout(8_000);
+  const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  const signal = init?.signal && anyFn ? anyFn([init.signal, timeout]) : timeout;
+  return fetch(input, { ...init, signal });
+};
+
 function anonClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) return null;
-  return createClient(url, anon, { auth: { persistSession: false } });
+  return createClient(url, anon, { auth: { persistSession: false }, global: { fetch: supabaseFetch } });
 }
 
 export function serviceClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
+  return createClient(url, key, { auth: { persistSession: false }, global: { fetch: supabaseFetch } });
 }
 
 /** Resolve the signed-in user from the request's Bearer token, or null. */

@@ -235,7 +235,9 @@ async function handlePost(req: Request) {
   let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
   const fromCache = Boolean(engine);
   if (!engine) {
+    try { console.log(`[lfg-timing] route pre-work ${Date.now() - t0}ms`); } catch { /* never break a search */ }
     engine = await searchEverywhere(niche, where, limitWanted, t0);
+    try { console.log(`[lfg-timing] route engine done ${Date.now() - t0}ms leads=${engine.leads.length}`); } catch { /* never break a search */ }
     if (engine.leads.length > 0) void cacheSet(searchKey, engine);
   }
   // Filtering at response time (not at cache time) so a cached result can
