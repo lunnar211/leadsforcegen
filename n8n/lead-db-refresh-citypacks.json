@@ -1,0 +1,87 @@
+{
+  "connections": {
+    "City packs refresh (6th, 05:30)": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Run script",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Run script": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Telegram report",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "name": "LeadsForceGen \u2014 Refresh city packs",
+  "nodes": [
+    {
+      "id": "712118b9-12ee-4661-8998-80a8684c3458",
+      "name": "City packs refresh (6th, 05:30)",
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "30 5 6 * *",
+              "field": "cronExpression"
+            }
+          ]
+        }
+      },
+      "position": [
+        240,
+        300
+      ],
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2
+    },
+    {
+      "id": "759bf0e8-dab3-40ec-b438-0a37cb8e0cbb",
+      "name": "Run script",
+      "parameters": {
+        "command": "cd /opt/leadsforcegen && python3 scripts/refresh_places.py CITY-PACKS"
+      },
+      "position": [
+        480,
+        300
+      ],
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1
+    },
+    {
+      "credentials": {
+        "telegramApi": {
+          "id": null,
+          "name": "LeadsForceGen Admin Bot"
+        }
+      },
+      "id": "578ebbfd-16b0-4d92-94a7-8ca2ea1771fc",
+      "name": "Telegram report",
+      "parameters": {
+        "additionalFields": {},
+        "chatId": "7153926241",
+        "text": "=\u2705 City packs refresh finished:\n{{ $json.stdout }}"
+      },
+      "position": [
+        720,
+        300
+      ],
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2
+    }
+  ],
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

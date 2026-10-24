@@ -1,0 +1,87 @@
+{
+  "connections": {
+    "Data quality (Sun, 02:00)": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Run script",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Run script": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Telegram report",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "name": "LeadsForceGen \u2014 Weekly data quality",
+  "nodes": [
+    {
+      "id": "f07631fd-e606-40f4-978e-142b2b525580",
+      "name": "Data quality (Sun, 02:00)",
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "0 2 * * 0",
+              "field": "cronExpression"
+            }
+          ]
+        }
+      },
+      "position": [
+        240,
+        300
+      ],
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2
+    },
+    {
+      "id": "fb317f2b-8ba3-4c5c-a327-18edfef3e178",
+      "name": "Run script",
+      "parameters": {
+        "command": "cd /opt/leadsforcegen && python3 scripts/verify_places.py --limit 5000"
+      },
+      "position": [
+        480,
+        300
+      ],
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1
+    },
+    {
+      "credentials": {
+        "telegramApi": {
+          "id": null,
+          "name": "LeadsForceGen Admin Bot"
+        }
+      },
+      "id": "64e4022b-9997-4a53-a950-bffe10c67aae",
+      "name": "Telegram report",
+      "parameters": {
+        "additionalFields": {},
+        "chatId": "7153926241",
+        "text": "=\u2705 Weekly data-quality pass finished:\n{{ $json.stdout }}"
+      },
+      "position": [
+        720,
+        300
+      ],
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2
+    }
+  ],
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

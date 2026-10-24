@@ -1,0 +1,87 @@
+{
+  "connections": {
+    "AE refresh (5th, 05:00)": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Run script",
+            "type": "main"
+          }
+        ]
+      ]
+    },
+    "Run script": {
+      "main": [
+        [
+          {
+            "index": 0,
+            "node": "Telegram report",
+            "type": "main"
+          }
+        ]
+      ]
+    }
+  },
+  "name": "LeadsForceGen \u2014 Refresh AE",
+  "nodes": [
+    {
+      "id": "26758f46-4b1b-4979-a37e-aad551e2716c",
+      "name": "AE refresh (5th, 05:00)",
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "expression": "0 5 5 * *",
+              "field": "cronExpression"
+            }
+          ]
+        }
+      },
+      "position": [
+        240,
+        300
+      ],
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2
+    },
+    {
+      "id": "eb25e4e3-b6ef-46a9-b78e-e60b6dcc1bcf",
+      "name": "Run script",
+      "parameters": {
+        "command": "cd /opt/leadsforcegen && python3 scripts/refresh_places.py AE"
+      },
+      "position": [
+        480,
+        300
+      ],
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1
+    },
+    {
+      "credentials": {
+        "telegramApi": {
+          "id": null,
+          "name": "LeadsForceGen Admin Bot"
+        }
+      },
+      "id": "afec9451-b2f4-4a5d-9b28-3c094948dbc4",
+      "name": "Telegram report",
+      "parameters": {
+        "additionalFields": {},
+        "chatId": "7153926241",
+        "text": "=\u2705 AE refresh finished:\n{{ $json.stdout }}"
+      },
+      "position": [
+        720,
+        300
+      ],
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2
+    }
+  ],
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
