@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
 import { getAuthUser, serviceClient } from "@/lib/quota";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { rateLimit } from "@/lib/rate-limit";
 
 // Validates a coupon code for a signed-in user. Returns ONLY the percent
 // — the payable amount is always recomputed server-side at checkout
 // (see the manual-proof route); a client can never set its own price.
 // Throttled (sweep finding S2): 20 rapid bogus guesses previously all
-// returned 404 with no slowdown. 10 checks/minute per IP now; the 11th
-// gets a 429. Guessing still can't succeed — it just can't run hot.
+// returned 404 with no slowdown. The first version throttled per IP and
+// still showed 20x404 in the confirmation round — same failure as the
+// first admin lockout: the client IP varies between requests (proxied
+// clients, rotating egress), so an IP-keyed counter never accumulates.
+// This endpoint is authenticated, so the throttle is keyed by USER ID:
+// 10 checks/minute per user; the 11th gets a 429. Guessing still can't
+// succeed — it just can't run hot. Auth runs first so the counter key
+// is always a real user, never "unknown".
 export async function POST(req: Request) {
-  if (!(await rateLimit(`coupon-validate:${clientIp(req)}`, 10, 60_000))) {
-    return NextResponse.json({ ok: false, error: "Too many code checks. Try again in a minute." }, { status: 429 });
-  }
   const user = await getAuthUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Sign in first." }, { status: 401 });
+  if (!(await rateLimit(`coupon-validate:${user.id}`, 10, 60_000))) {
+    return NextResponse.json({ ok: false, error: "Too many code checks. Try again in a minute." }, { status: 429 });
+  }
   const admin = serviceClient();
   if (!admin) return NextResponse.json({ ok: false, error: "Coupons are not available right now." }, { status: 503 });
   const body = (await req.json().catch(() => ({}))) as { code?: string };
