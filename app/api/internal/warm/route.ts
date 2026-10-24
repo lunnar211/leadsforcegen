@@ -20,6 +20,9 @@ const DEFAULT_SEARCHES: { niche: string; location: string; limit: number }[] = [
   { niche: "dentist", location: "Kathmandu", limit: 30 },
   { niche: "pharmacy", location: "Dubai", limit: 30 },
   { niche: "salon", location: "Dubai", limit: 30 },
+  { niche: "restaurant", location: "Karachi", limit: 30 },
+  { niche: "restaurant", location: "Dhaka", limit: 30 },
+  { niche: "dentist", location: "Seattle", limit: 30 },
 ];
 
 export async function POST(req: Request) {

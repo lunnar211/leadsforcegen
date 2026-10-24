@@ -8,9 +8,16 @@ into Postgres — no dashboard CSV importer involved.
 Usage:
   DATABASE_URL=postgres://... python3 scripts/refresh_places.py AE NP
   DATABASE_URL=postgres://... python3 scripts/refresh_places.py US-METROS
+  DATABASE_URL=postgres://... python3 scripts/refresh_places.py CITY-PACKS
 
 US-METROS loads the top-10 US metro bounding boxes (fits the free-tier
 database; full-US needs a bigger plan).
+
+CITY-PACKS extracts the 11 worldwide city packs (same boxes as
+scripts/ingest_overture_city.py) to data/places-city-<slug>.csv — the
+warehouse files — and upserts ONLY the HOT_CITIES subset into the
+`places` table. Never upsert all 11 blindly: ~3.7M rows would blow the
+free-tier database. Files are the warehouse; the table is the hot window.
 
 Requires: duckdb, psycopg2 (pip install duckdb psycopg2-binary).
 Prints one summary line per country: "AE upserted=134144 total_in_table=…".
@@ -35,12 +42,36 @@ US_METROS = [  # (name, lon_min, lon_max, lat_min, lat_max)
 SOCIAL_HOSTS = ("facebook.com", "instagram.com", "twitter.com", "x.com",
                 "linkedin.com", "tiktok.com", "youtube.com", "wa.me", "whatsapp.com")
 
+# Worldwide city packs — MUST mirror scripts/ingest_overture_city.py CITIES
+# (display, lat, lon, radius_km). The monthly refresh extracts all of them
+# to warehouse files but upserts only HOT_CITIES into the free-tier table.
+CITY_PACKS = {
+    "london": ("London", 51.5074, -0.1278, 30),
+    "toronto": ("Toronto", 43.6532, -79.3832, 30),
+    "mumbai": ("Mumbai", 19.0760, 72.8777, 30),
+    "delhi": ("Delhi", 28.7041, 77.1025, 30),
+    "sydney": ("Sydney", -33.8688, 151.2093, 30),
+    "berlin": ("Berlin", 52.5200, 13.4050, 25),
+    "paris": ("Paris", 48.8566, 2.3522, 25),
+    "tokyo": ("Tokyo", 35.6762, 139.6503, 30),
+    "saopaulo": ("Sao Paulo", -23.5558, -46.6396, 30),
+    "karachi": ("Karachi", 24.8607, 67.0011, 25),
+    "dhaka": ("Dhaka", 23.8103, 90.4125, 25),
+}
+HOT_CITIES = ["karachi", "dhaka"]  # ~143k rows together; fits free-tier headroom
 
-def extract(country: str, bbox, out_csv: str) -> int:
-    """Run the DuckDB extract for one country (or one US metro) to CSV."""
+
+def extract(country: str | None, bbox, out_csv: str) -> int:
+    """Run the DuckDB extract for one country (or one US metro) to CSV.
+
+    country=None means a worldwide city pack: no country filter, bbox is
+    matched on the place CENTRE (exactly like ingest_overture_city.py),
+    so refresh extracts stay identical to the warehouse pack files.
+    """
     import duckdb
     import re
     import urllib.request
+    from urllib.parse import urlparse
 
     listing = urllib.request.urlopen(
         f"{BUCKET}/?list-type=2&prefix=release/{RELEASE}/theme=places/type=place/&max-keys=200",
@@ -48,22 +79,38 @@ def extract(country: str, bbox, out_csv: str) -> int:
     keys = re.findall(r"<Key>([^<]+)</Key>", listing)
     urls = "[" + ",".join(f"'{BUCKET}/{k}'" for k in keys) + "]"
 
+    # Proxy: capture, then strip from the environment before DuckDB reads
+    # it (httpfs breaks on the sandbox proxy otherwise) and re-apply the
+    # decomposed values inside DuckDB — same pattern as ingest_overture_city.
+    proxy = os.environ.get("http_proxy") or os.environ.get("HTTPS_PROXY") or ""
+    p = urlparse(proxy) if proxy else None
+    for k in list(os.environ):
+        if "proxy" in k.lower():
+            os.environ.pop(k, None)
+
     con = duckdb.connect()
     con.execute("INSTALL httpfs; LOAD httpfs;")
-    proxy = os.environ.get("http_proxy") or os.environ.get("HTTPS_PROXY") or ""
-    if proxy:
-        from urllib.parse import urlparse
-        p = urlparse(proxy)
+    if p and p.hostname:
         con.execute(f"SET http_proxy='{p.hostname}:{p.port}';")
         if p.username:
             con.execute(f"SET http_proxy_username='{p.username}';")
         if p.password:
             con.execute(f"SET http_proxy_password='{p.password}';")
 
-    where = [f"addresses[1].country = '{country}'"]
+    where = []
+    if country:
+        where.append(f"addresses[1].country = '{country}'")
+    else:
+        where.append("names.primary IS NOT NULL")
     if bbox:
         x0, x1, y0, y1 = bbox
-        where.append(f"bbox.xmin > {x0} AND bbox.xmax < {x1} AND bbox.ymin > {y0} AND bbox.ymax < {y1}")
+        if country:
+            where.append(f"bbox.xmin > {x0} AND bbox.xmax < {x1} AND bbox.ymin > {y0} AND bbox.ymax < {y1}")
+        else:
+            where.append(f"(bbox.xmin + bbox.xmax) / 2 BETWEEN {x0} AND {x1} AND (bbox.ymin + bbox.ymax) / 2 BETWEEN {y0} AND {y1}")
+    closed = ("(operating_status IS NULL OR operating_status <> 'closed')"
+              if country else
+              "coalesce(lower(operating_status), 'open') NOT LIKE '%closed%'")
     q = f"""
     COPY (
       SELECT
@@ -83,7 +130,7 @@ def extract(country: str, bbox, out_csv: str) -> int:
         'overture' AS source
       FROM read_parquet({urls})
       WHERE {' AND '.join(where)}
-        AND (operating_status IS NULL OR operating_status <> 'closed')
+        AND {closed}
         AND confidence >= 0.3
     ) TO '{out_csv}' (HEADER, DELIMITER ',');
     """
@@ -158,6 +205,25 @@ def main() -> int:
     targets = sys.argv[1:] or ["AE", "NP"]
     ok = True
     for t in targets:
+        if t == "CITY-PACKS":
+            import math
+            os.makedirs("data", exist_ok=True)
+            for slug, (display, lat, lon, r) in CITY_PACKS.items():
+                dlat = r / 111.0
+                dlon = r / (111.0 * max(0.2, abs(math.cos(math.radians(lat)))))
+                bbox = (lon - dlon, lon + dlon, lat - dlat, lat + dlat)
+                csv_path = f"data/places-city-{slug}.csv"
+                try:
+                    rows = extract(None, bbox, csv_path)
+                    if slug in HOT_CITIES:
+                        n = upsert(csv_path)
+                        print(f"{display}: extracted={rows} upserted={n}", flush=True)
+                    else:
+                        print(f"{display}: extracted={rows} (warehouse file only)", flush=True)
+                except Exception as e:  # noqa: BLE001
+                    ok = False
+                    print(f"{display}: FAILED {type(e).__name__}: {e}", flush=True)
+            continue
         jobs = []
         if t == "US-METROS":
             jobs = [("US", (x0, x1, y0, y1), name) for name, x0, x1, y0, y1 in US_METROS]
