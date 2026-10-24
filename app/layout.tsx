@@ -27,11 +27,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "LeadsForceGen — AI Lead Generation Tool | Find B2B Leads Fast",
+    default: "LeadsForceGen — AI Lead Generation Tool | Find B2B Leads",
     template: "%s | LeadsForceGen",
   },
   description:
-    "LeadsForceGen is an AI lead generation tool that finds and scores B2B company leads by industry, location and company size. Start free with limited leads, upgrade to Pro for unlimited leads, CSV export and AI outreach messages.",
+    "Find verified B2B leads by industry and city — phone, email, website and social links included. Free: 30 leads a day. Pro: unlimited searches + exports.",
   keywords: [
     "lead generation tool",
     "AI lead generation",
@@ -48,15 +48,36 @@ export const metadata: Metadata = {
     siteName: "LeadsForceGen",
     title: "LeadsForceGen — AI Lead Generation Tool",
     description:
-      "Find and score B2B company leads with AI. Free plan available — Pro gives unlimited leads, CSV export and AI outreach.",
+      "Find verified B2B leads by industry and city — phone, email, website and social links included. Free: 30 leads a day.",
     url: SITE_URL,
+    images: [{ url: "/og.png", width: 2240, height: 1120, alt: "LeadsForceGen — verified B2B leads" }],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "LeadsForceGen — AI Lead Generation Tool",
     description:
-      "Find and score B2B company leads with AI. Free plan available — Pro gives unlimited leads and AI outreach.",
+      "Find verified B2B leads by industry and city. Free: 30 leads a day. Pro: unlimited searches + exports.",
+    images: ["/og.png"],
   },
+};
+
+// Structured data: helps search engines understand the product (and
+// qualifies the site for rich results). Kept factual — no invented
+// ratings, reviews, or social profiles.
+const ORG_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "LeadsForceGen",
+  url: SITE_URL,
+  logo: `${SITE_URL}/icon.svg`,
+  description:
+    "AI lead generation tool that finds verified B2B business leads by industry and city from public listings and businesses' own websites.",
+};
+const WEBSITE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "LeadsForceGen",
+  url: SITE_URL,
 };
 
 // Runs before first paint: applies the saved theme (or the OS preference)
@@ -68,6 +89,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={jakarta.variable} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSON_LD) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_JSON_LD) }} />
       </head>
       <body className="min-h-[100dvh] flex flex-col bg-bg text-fg font-sans antialiased">
         <SiteBanner />
