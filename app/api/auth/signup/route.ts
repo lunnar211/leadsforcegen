@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isDisposableEmail } from "@/lib/auth/disposable";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
-import { sendAdminAlert } from "@/lib/telegram";
+import { sendTelegram } from "@/lib/telegram";
 
 /**
  * Server-side signup — the ONLY path that creates password accounts.
@@ -81,9 +81,12 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
-  // Fail-open admin alert: fire-and-forget, never awaited, never
-  // blocks the signup response. Email only — no password or token,
-  // ever. New accounts are free by design, hence "(free)".
-  sendAdminAlert(`New signup: ${email} (free) at ${new Date().toISOString()}`);
+  // Fail-open admin alert: scheduled with after() so it runs after
+  // the response is sent (zero latency for the user) AND the
+  // serverless runtime guarantees it executes — a bare floating
+  // promise could be cut off when the function returns. Email only
+  // — no password or token, ever. New accounts are free by design,
+  // hence "(free)".
+  after(() => sendTelegram(`New signup: ${email} (free) at ${new Date().toISOString()}`));
   return NextResponse.json({ ok: true });
 }

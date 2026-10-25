@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createHash } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { MANUAL_METHODS, MANUAL_PRICES_NPR } from "@/lib/payments/plans";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
-import { sendAdminAlert } from "@/lib/telegram";
+import { sendTelegram } from "@/lib/telegram";
 
 export const maxDuration = 30;
 
@@ -189,14 +189,17 @@ export async function POST(req: Request) {
       if (data && data[0]) await admin.from("coupons").update({ used_count: Number(data[0].used_count || 0) + 1 }).eq("id", data[0].id);
     } catch { /* ignore */ }
   }
-  // Fail-open admin alert so the proof gets reviewed fast. Deliberately
-  // NOT awaited (the previous version awaited sendTelegram, so a
-  // Telegram outage added latency to the buyer's response). Never
-  // throws, never blocks. No proof file content, no storage path, no
-  // instruction body — only what the admin needs to review. Duplicate
-  // submissions return early above and do not re-alert.
-  sendAdminAlert(
-    `Payment proof submitted: ${userData.user.email || "a buyer"}, gateway ${method}, amount ${amount} NPR, pending approval in /admin`,
+  // Fail-open admin alert so the proof gets reviewed fast. Scheduled
+  // with after(): zero latency for the buyer (the previous version
+  // awaited sendTelegram inline) AND guaranteed execution — a bare
+  // floating promise could be cut off when the function returns.
+  // Never throws, never blocks. No proof file content, no storage
+  // path, no instruction body — only what the admin needs to review.
+  // Duplicate submissions return early above and do not re-alert.
+  after(() =>
+    sendTelegram(
+      `Payment proof submitted: ${userData.user.email || "a buyer"}, gateway ${method}, amount ${amount} NPR, pending approval in /admin`,
+    ),
   );
   return NextResponse.json({
     ok: true,
