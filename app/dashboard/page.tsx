@@ -6,6 +6,7 @@ import { type Lead } from "@/lib/types";
 import { supabase } from "@/lib/supabaseClient";
 import SupportCard from "@/components/SupportCard";
 import MfaCard from "@/components/MfaCard";
+import ProPanel from "@/components/ProPanel";
 import areaData from "@/lib/data/areas.json";
 
 // Country first, then exact area: picking a country narrows the area
@@ -18,7 +19,7 @@ const COUNTRIES = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "An
 const AREAS: Record<string, string[]> = areaData as Record<string, string[]>;
 
 type HistoryItem = { at: string; industry: string; location: string; count: number };
-type UsageState = { configured: boolean; plan: string; used: number; limit: number; remaining: number };
+type UsageState = { configured: boolean; plan: string; used: number; limit: number; remaining: number; email?: string };
 type Toast = { kind: "success" | "error"; text: string } | null;
 
 // Plan and usage come ONLY from the server (/api/usage, backed by Supabase
@@ -148,6 +149,10 @@ export default function Dashboard() {
   }, [router]);
 
   const isPro = usage?.plan === "pro";
+  // Pro panel tab: rendered ONLY for Pro users (plan comes from
+  // /api/usage, never from the client). Free users never see the tab
+  // or its contents — they keep the existing "Upgrade to Pro" card.
+  const [dashTab, setDashTab] = useState<"search" | "pro">("search");
 
   // override lets one-tap history re-runs bypass setState timing: the
   // request uses the clicked values immediately, not the next render.
@@ -364,6 +369,40 @@ export default function Dashboard() {
         </div>
       ) : signedOut ? (
         <GuestOverview />
+      ) : (
+      <>
+      {isPro && (
+        <div className="mt-6 flex gap-2" role="tablist" aria-label="Dashboard sections">
+          <button
+            type="button" role="tab" aria-selected={dashTab === "search"} onClick={() => setDashTab("search")}
+            className="rounded-[var(--radius)] px-4 py-2 text-sm font-semibold"
+            style={dashTab === "search" ? { background: "var(--accent)", color: "#fff" } : { color: "var(--fg)" }}
+          >
+            Lead search
+          </button>
+          <button
+            type="button" role="tab" aria-selected={dashTab === "pro"} onClick={() => setDashTab("pro")}
+            className="rounded-[var(--radius)] px-4 py-2 text-sm font-semibold"
+            style={dashTab === "pro" ? { background: "var(--accent)", color: "#fff" } : { color: "var(--fg)" }}
+          >
+            Pro panel
+          </button>
+        </div>
+      )}
+      {isPro && dashTab === "pro" ? (
+        <div className="mt-6">
+          <ProPanel
+            usage={usage}
+            history={history}
+            authHeaders={authHeaders}
+            onReRun={(h) => {
+              setDashTab("search");
+              setCountry(""); setArea("");
+              setForm({ ...form, industry: h.industry, location: h.location });
+              void runSearch({ industry: h.industry, location: h.location });
+            }}
+          />
+        </div>
       ) : (
       <div className="mt-6 grid gap-4 lg:grid-cols-[380px_1fr] lg:items-start">
         {/* Left column: quota card + search form */}
@@ -674,6 +713,8 @@ export default function Dashboard() {
           </section>
         </div>
       </div>
+      )}
+      </>
       )}
 
       {/* Toast */}

@@ -9,16 +9,8 @@ import SiteSettings from "@/components/SiteSettings";
 
 type UserRow = { id: string; email: string; plan: string; role: string; is_active: boolean; created_at: string };
 type PaymentRow = { id: string; email: string | null; gateway: string; amount: number; currency: string; status: string; created_at: string };
-
-const DEMO_USERS: UserRow[] = [
-  { id: "demo-1", email: "demo-user-1@example.com", plan: "free", role: "user", is_active: true, created_at: "2026-10-01" },
-  { id: "demo-2", email: "demo-user-2@example.com", plan: "pro", role: "user", is_active: true, created_at: "2026-10-05" },
-  { id: "demo-3", email: "owner@example.com", plan: "pro", role: "admin", is_active: true, created_at: "2026-09-20" },
-];
-const DEMO_ACTIVITY = [
-  "demo-user-2 upgraded to Pro (sample)", "demo-user-1 ran a lead search: SaaS · Kathmandu (sample)",
-  "New signup: demo-user-1@example.com (sample)", "AI outreach generated (sample)",
-];
+type ActivityEvent = { type: string; at: string; summary: string };
+type MoneySummary = { captured: Record<string, number>; capturedCount: number; pendingCount: number } | null;
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -35,15 +27,18 @@ type TabId = (typeof TABS)[number]["id"];
 
 // Tabbed admin shell (redesigned 2026-10-23, UI/UX Pro Max dense system):
 // sidebar on desktop, scrollable chip row on mobile. All data and
-// controls go through owner-only server APIs; when an API is unavailable
-// the panel falls back to clearly labeled sample data.
+// controls go through owner-only server APIs. There is no demo or
+// sample data anywhere: when an API is unavailable the panel says so
+// and shows empty states, never invented rows or counts.
 export default function AdminPanel() {
   const [tab, setTab] = useState<TabId>("overview");
-  const [users, setUsers] = useState<UserRow[]>(DEMO_USERS);
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [live, setLive] = useState(false);
-  const [activity, setActivity] = useState<string[]>(DEMO_ACTIVITY);
-  const [stats, setStats] = useState({ users: DEMO_USERS.length, searches: 42, leads: 318, pro: 1 });
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [activityPartial, setActivityPartial] = useState(false);
+  const [money, setMoney] = useState<MoneySummary>(null);
+  const [stats, setStats] = useState({ users: 0, searches: 0, leads: 0, pro: 0 });
   const [msg, setMsg] = useState("");
   const [userQuery, setUserQuery] = useState("");
 
@@ -55,10 +50,28 @@ export default function AdminPanel() {
         setUsers(d.data.users || []);
         setPayments(d.data.payments || []);
         setStats(d.data.stats);
-        setActivity(d.data.activity?.length ? d.data.activity : ["No activity recorded yet."]);
         setLive(true);
       }
-    } catch { /* keep demo fallback */ }
+    } catch { /* live stays false; the panel shows the unavailable state */ }
+    try {
+      const res = await fetch("/api/admin/activity");
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.ok && Array.isArray(d.events)) {
+        setActivity(d.events as ActivityEvent[]);
+        setActivityPartial(Boolean(d.partial));
+      }
+    } catch { /* activity stays empty; the panel shows the empty state */ }
+    try {
+      const res = await fetch("/api/admin/money");
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.ok && d.data) {
+        setMoney({
+          captured: d.data.captured || {},
+          capturedCount: d.data.capturedCount || 0,
+          pendingCount: d.data.pending?.count || 0,
+        });
+      }
+    } catch { /* money strip stays hidden; nothing is invented */ }
   }, []);
 
   useEffect(() => {
@@ -66,7 +79,7 @@ export default function AdminPanel() {
   }, [load]);
 
   async function control(u: UserRow, action: "toggle-plan" | "toggle-active") {
-    if (!live) { setMsg("Demo mode: connect Supabase to use live controls."); return; }
+    if (!live) { setMsg("Admin API unavailable — connect Supabase to use live controls."); return; }
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -90,7 +103,7 @@ export default function AdminPanel() {
         </div>
         <span className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-fg" role="status">
           <span className="h-2 w-2 rounded-full" style={{ background: live ? "var(--success)" : "var(--warning)" }} aria-hidden="true" />
-          {live ? "Live data" : "Demo data"}
+          {live ? "Live data" : "Admin API unavailable"}
         </span>
         <button onClick={async () => { await fetch("/api/admin/login", { method: "DELETE" }); location.reload(); }} className="btn-ghost ml-auto px-3.5 text-sm">Log out of admin</button>
       </div>
@@ -124,6 +137,17 @@ export default function AdminPanel() {
                   </div>
                 ))}
               </div>
+              {money && (
+                <div className="card mt-4 p-5">
+                  <h3 className="font-semibold text-fg">Money at a glance</h3>
+                  <p className="mt-2 text-sm text-muted">
+                    {Object.keys(money.captured).length === 0
+                      ? "No captured revenue yet."
+                      : Object.entries(money.captured).map(([cur, sum]) => `${cur} ${Number(sum).toLocaleString()}`).join(" · ")}
+                    {" · "}{money.capturedCount} captured · {money.pendingCount} pending payments
+                  </p>
+                </div>
+              )}
               <div className="card mt-4 p-5">
                 <div className="flex flex-wrap items-center gap-3">
                   <h3 className="font-semibold text-fg">Recent payments</h3>
@@ -149,12 +173,21 @@ export default function AdminPanel() {
                   <h3 className="font-semibold text-fg">Latest activity</h3>
                   <button type="button" className="btn-ghost ml-auto px-3 py-1.5 text-xs" onClick={() => setTab("activity")}>Full log</button>
                 </div>
-                <ul className="mt-3 space-y-2 text-sm text-muted">{activity.slice(0, 6).map((a, i) => <li key={i}>• {a}</li>)}</ul>
+                {activity.length === 0 ? (
+                  <p className="mt-3 text-sm text-muted">No activity recorded yet.</p>
+                ) : (
+                  <ul className="mt-3 space-y-2 text-sm text-muted">
+                    {activity.slice(0, 6).map((a, i) => (
+                      <li key={i}>• <span className="font-semibold capitalize text-fg">{a.type}</span> — {a.summary} <span className="text-xs">({String(a.at).slice(0, 16).replace("T", " ")})</span></li>
+                    ))}
+                  </ul>
+                )}
+                {activityPartial && <p className="mt-3 text-xs text-muted">Some activity sources could not be loaded — this list may be incomplete.</p>}
               </div>
               <p className="mt-4 text-xs text-muted">
                 {live
                   ? "Live data from Supabase, served by the owner-only admin API. The browser never receives database credentials."
-                  : "Demo / sample data — the admin API is unavailable (Supabase not configured or the schema has not been applied yet)."}
+                  : "Admin data is unavailable — the admin API could not be reached (Supabase not configured or the schema has not been applied yet)."}
               </p>
             </section>
           )}
@@ -162,7 +195,7 @@ export default function AdminPanel() {
           {tab === "users" && (
             <section aria-label="Users">
               <div className="flex flex-wrap items-center gap-3">
-                <h2 className="text-lg font-bold tracking-tight text-fg">Users {live ? "" : "(demo)"}</h2>
+                <h2 className="text-lg font-bold tracking-tight text-fg">Users {live ? "" : "(unavailable)"}</h2>
                 <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-muted">{shownUsers.length} shown</span>
                 <input
                   type="search" value={userQuery} onChange={(e) => setUserQuery(e.target.value)}
@@ -214,7 +247,20 @@ export default function AdminPanel() {
           {tab === "activity" && (
             <section aria-label="Activity log" className="card p-5">
               <h3 className="font-semibold text-fg">Activity log</h3>
-              <ul className="mt-3 space-y-2 text-sm text-muted">{activity.map((a, i) => <li key={i}>• {a}</li>)}</ul>
+              <p className="mt-1 text-xs text-muted">Real events from signups, payments, approvals, support tickets, and coupons — newest first.</p>
+              {activity.length === 0 ? (
+                <p className="mt-3 text-sm text-muted">No activity recorded yet.</p>
+              ) : (
+                <ul className="mt-3 space-y-2 text-sm text-muted">
+                  {activity.map((a, i) => (
+                    <li key={i} className="border-t border-border pt-2 first:border-t-0 first:pt-0">
+                      <span className="font-semibold capitalize text-fg">{a.type}</span> — {a.summary}
+                      <span className="block text-xs">{String(a.at).slice(0, 16).replace("T", " ")}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {activityPartial && <p className="mt-3 text-xs text-muted">Some activity sources could not be loaded — this list may be incomplete.</p>}
             </section>
           )}
         </div>
