@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { serviceClient } from "@/lib/quota";
 import { requireProUser, loadSettings } from "@/lib/email/guard";
-import { decryptSecret, hashToken } from "@/lib/email/crypto";
+import { decryptSecret, encryptSecret, hashToken } from "@/lib/email/crypto";
 import { extractEmails } from "@/lib/email/extract";
 import { buildHtml, rewriteLinks, sendOne, fireWebhook, type Attachment, type ProviderCreds } from "@/lib/email/providers";
 import { getBlocklist, isBlocked } from "@/lib/engine/blocklist";
@@ -14,6 +14,10 @@ import { getBlocklist, isBlocked } from "@/lib/engine/blocklist";
 // software never limits you beyond what your provider allows; the
 // queue + Resume path lets a big list drain across calls and days.
 const PER_SEND_CAP = 50;
+// Auto-drain campaigns may queue a bigger list (the drain cron sends
+// it day by day within the provider cap); manual campaigns keep the
+// 50-recipient cap above. 5000 bounds abuse without cutting real lists.
+const MAX_DRAIN_RECIPIENTS = 5000;
 const DAILY_CAPS: Record<string, number> = { brevo: 300, resend: 100, smtp: 500 };
 const MAX_ATTACH_BYTES = 2 * 1024 * 1024;
 const SEND_DEADLINE_MS = 50_000;
@@ -78,8 +82,11 @@ export async function POST(req: Request) {
     if (!subject || !bodyHtml) {
       return NextResponse.json({ ok: false, error: "Subject and message are required." }, { status: 400 });
     }
+    // Auto-drain is opt-in per campaign (default off) and text-only:
+    // attachments are deliberately never stored for draining.
+    const autoDrain = body.autoDrain === true;
     const rawList = Array.isArray(body.recipients) ? body.recipients.join("\n") : String(body.recipients || "");
-    let emails = extractEmails(rawList).slice(0, PER_SEND_CAP);
+    let emails = extractEmails(rawList).slice(0, autoDrain ? MAX_DRAIN_RECIPIENTS : PER_SEND_CAP);
     if (!emails.length) {
       return NextResponse.json({ ok: false, error: "No valid email addresses in the list." }, { status: 400 });
     }
@@ -94,6 +101,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "Attachments total over 2 MB." }, { status: 400 });
       }
     }
+    if (autoDrain && newAttachments.length > 0) {
+      // Refuse loudly instead of silently dropping attachments: the
+      // drain cron has no client to re-supply them from.
+      return NextResponse.json({ ok: false, error: "Auto-drain is text-only; campaigns with attachments use manual Resume." }, { status: 400 });
+    }
     // Never send to a business/person that unsubscribed, even if the
     // user pasted them again.
     const blocklist = await getBlocklist();
@@ -104,12 +116,38 @@ export async function POST(req: Request) {
       else sendable.push(email);
     }
     emails = sendable;
+    // Auto-drain is the ONE case where the body is persisted — and
+    // only encrypted, with the same AES helper as provider credentials
+    // (see supabase/email-autodrain.sql). The columns are added to the
+    // insert object only when opted in, so every other campaign insert
+    // works exactly as before even if the migration is not applied yet.
+    const insertRow: Record<string, unknown> = {
+      user_id: auth.user.id,
+      subject,
+      template,
+      status: "sending",
+      total: emails.length + blocked.length,
+    };
+    if (autoDrain) {
+      insertRow.auto_drain = true;
+      insertRow.body_enc = encryptSecret(bodyHtml);
+    }
     const { data: camp } = await admin
       .from("email_campaigns")
-      .insert({ user_id: auth.user.id, subject, template, status: "sending", total: emails.length + blocked.length })
+      .insert(insertRow)
       .select("id")
       .single();
-    if (!camp) return NextResponse.json({ ok: false, error: "Could not create the campaign." }, { status: 502 });
+    if (!camp) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: autoDrain
+            ? "Auto-drain is not enabled yet — the site owner must apply supabase/email-autodrain.sql first."
+            : "Could not create the campaign.",
+        },
+        { status: 502 },
+      );
+    }
     campaignId = camp.id as string;
     const rows = emails.map((email) => ({
       campaign_id: campaignId,
@@ -212,6 +250,13 @@ export async function POST(req: Request) {
       failed: byStatus("failed"),
     })
     .eq("id", campaignId);
+  // Auto-drain bodies must not linger: once nothing is queued, clear
+  // the encrypted body. Best-effort and result-ignored on purpose —
+  // before the auto-drain migration is applied this update errors on
+  // the missing column, and the status update above must still stand.
+  if (byStatus("queued") === 0) {
+    await admin.from("email_campaigns").update({ body_enc: null }).eq("id", campaignId);
+  }
   return NextResponse.json({
     ok: true,
     data: {

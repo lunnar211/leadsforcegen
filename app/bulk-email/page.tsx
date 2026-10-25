@@ -4,7 +4,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
 type Settings = { provider: string; senderName: string; senderEmail: string; webhookUrl: string | null; keySet: boolean };
-type Campaign = { id: string; subject: string; template: string; status: string; total: number; sent: number; failed: number; opened: number; clicked: number; unsubscribed: number; created_at: string };
+type Campaign = { id: string; subject: string; template: string; status: string; total: number; sent: number; failed: number; opened: number; clicked: number; unsubscribed: number; created_at: string; auto_drain?: boolean };
 type RecipientRow = { email: string; status: string; opened_at: string | null; clicked_at: string | null; unsubscribed_at: string | null; error: string | null };
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
@@ -44,6 +44,9 @@ export default function BulkEmail() {
   const [verified, setVerified] = useState<{ valid: string[]; invalid: string[] } | null>(null);
   const [attachments, setAttachments] = useState<{ name: string; content: string; type: string }[]>([]);
   const [attachErr, setAttachErr] = useState("");
+  // Auto-drain is opt-in per campaign (default off) and text-only.
+  const [autoDrain, setAutoDrain] = useState(false);
+  const [lastAutoDrain, setLastAutoDrain] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
   const [sendResult, setSendResult] = useState<{ campaignId: string; sent: number; failed: number; queued: number; blocked: number } | null>(null);
@@ -140,14 +143,22 @@ export default function BulkEmail() {
     setAttachments(encoded);
   }
 
+  async function stopAutoDrain(id: string) {
+    const h = await headers();
+    const r = await fetch("/api/email/campaigns", { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ campaignId: id, action: "stop" }) }).then((x) => x.json()).catch(() => ({}));
+    if (r.ok) void load();
+    else setSendError(r.error || "Could not stop auto-drain.");
+  }
+
   async function send(resumeId?: string) {
     setSending(true);
     setSendError("");
     setSendResult(null);
+    setLastAutoDrain(!resumeId && autoDrain);
     const h = await headers();
     const payload: Record<string, unknown> = resumeId
       ? { campaignId: resumeId, subject, template, bodyHtml: toHtml(message), attachments }
-      : { subject, template, bodyHtml: toHtml(message), recipients: verified?.valid ?? extracted, attachments };
+      : { subject, template, bodyHtml: toHtml(message), recipients: verified?.valid ?? extracted, attachments, autoDrain };
     const r = await fetch("/api/email/send", { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((x) => x.json()).catch(() => ({}));
     setSending(false);
     if (r.ok) {
@@ -181,7 +192,7 @@ export default function BulkEmail() {
     <main className="mx-auto w-full max-w-[900px] px-4 py-10">
       <h1 className="text-3xl font-bold">Bulk Email</h1>
       <p className="mt-1 text-sm text-muted">Send only to people who gave you permission. Every mail carries an unsubscribe link, and unsubscribed addresses are never mailed again.</p>
-      <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). A list bigger than one day&apos;s ceiling drains day by day — unsent addresses stay queued and the Resume button sends the next batch.</p>
+      <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). A list bigger than one day&apos;s ceiling drains day by day — unsent addresses stay queued and the Resume button sends the next batch. Tick Auto-drain at compose time and the queue continues automatically each day instead — still never above your provider&apos;s daily cap.</p>
 
       <section className="card mt-6 space-y-4 p-5" aria-label="Provider settings">
         <h2 className="text-xl font-bold">1. Your sending provider (free)</h2>
@@ -242,6 +253,16 @@ export default function BulkEmail() {
           {attachErr && <p className="field-error">{attachErr}</p>}
           {attachments.length > 0 && <p className="mt-1 text-xs text-muted">{attachments.map((a) => a.name).join(", ")}</p>}
         </div>
+        <div className="space-y-1">
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={autoDrain} disabled={attachments.length > 0} onChange={(e) => setAutoDrain(e.target.checked)} />
+            <span>
+              <span className="font-medium">Auto-drain daily until done</span>
+              <span className="block text-muted">Auto-drain sends up to your provider&apos;s daily limit each day until the list is done. It never exceeds the daily cap. No manual Resume clicks needed (up to 5,000 recipients per auto-drain campaign).</span>
+            </span>
+          </label>
+          {attachments.length > 0 && <p className="text-sm text-muted">Auto-drain is text-only; campaigns with attachments use manual Resume.</p>}
+        </div>
       </section>
 
       <section className="card mt-6 space-y-4 p-5" aria-label="Recipients">
@@ -270,6 +291,9 @@ export default function BulkEmail() {
         {sendResult && (
           <div className="rounded-lg border border-border p-3 text-sm">
             <p>Sent: {sendResult.sent} · Failed: {sendResult.failed} · Still queued: {sendResult.queued} · Blocked (unsubscribed): {sendResult.blocked}</p>
+            {sendResult.queued > 0 && lastAutoDrain && (
+              <p className="mt-2 text-muted">Auto-drain is on — the rest will send automatically each day within your provider&apos;s cap. You can stop it from the campaign list below.</p>
+            )}
             {sendResult.queued > 0 && (
               <button type="button" className="btn-primary mt-2" onClick={() => void send(sendResult.campaignId)}>Resume queued</button>
             )}
@@ -286,6 +310,10 @@ export default function BulkEmail() {
               <span className="font-medium">{c.subject}</span>
               <span className="block text-sm text-muted">{c.status} · sent {c.sent}/{c.total} · opened {c.opened} · clicked {c.clicked} · unsubscribed {c.unsubscribed} · {new Date(c.created_at).toLocaleString()}</span>
             </button>
+            <p className="mt-1 text-xs text-muted">Auto-drain: {c.auto_drain ? (c.status === "done" ? "Done" : "On") : "Off"}</p>
+            {c.auto_drain && c.status !== "done" && (
+              <button type="button" className="btn-ghost mt-1 px-3 py-1 text-xs" onClick={() => void stopAutoDrain(c.id)}>Stop auto-drain</button>
+            )}
           </div>
         ))}
         {detail && (
