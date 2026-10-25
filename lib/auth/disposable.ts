@@ -1,5 +1,16 @@
 import "server-only";
-import { DISPOSABLE_DOMAINS } from "./disposable-domains";
+import { DISPOSABLE_DOMAINS_1 } from "./disposable-domains-1";
+import { DISPOSABLE_DOMAINS_2 } from "./disposable-domains-2";
+import { DISPOSABLE_DOMAINS_3 } from "./disposable-domains-3";
+
+// Merged from 3 chunk files: a single 193 KB list broke Vercel deploys
+// (deploy_vercel.py passes each file's base64 as ONE CLI argument,
+// capped at ~128 KB). Each chunk is ~65 KB raw and deploys fine.
+const DISPOSABLE_DOMAINS: ReadonlySet<string> = new Set([
+  ...DISPOSABLE_DOMAINS_1,
+  ...DISPOSABLE_DOMAINS_2,
+  ...DISPOSABLE_DOMAINS_3,
+]);
 
 /**
  * True when the address sits on a disposable / temporary-mail domain.
