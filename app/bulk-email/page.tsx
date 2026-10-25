@@ -17,6 +17,30 @@ function extract(raw: string): string[] {
   }
   return out;
 }
+// Transparency for what extraction drops before any verification runs:
+// raw regex matches that are malformed (contain "..") or repeats of an
+// address already kept. These never enter the "found" count, so they are
+// reported separately and never mixed into the found buckets below.
+function pasteStats(raw: string): { duplicates: number; malformed: number } {
+  const seen = new Set<string>();
+  let duplicates = 0;
+  let malformed = 0;
+  for (const m of raw.match(EMAIL_RE) || []) {
+    const e = m.toLowerCase();
+    if (e.includes("..")) { malformed++; continue; }
+    if (seen.has(e)) { duplicates++; continue; }
+    seen.add(e);
+  }
+  return { duplicates, malformed };
+}
+// The server's extractEmails applies a stricter shape check than the
+// client's extract() above (empty local/domain, domain starting or ending
+// with a dot). Addresses failing it are never verified, so they get their
+// own bucket instead of vanishing from the counts.
+function serverShapeOk(email: string): boolean {
+  const [local, domain] = email.split("@");
+  return !!local && !!domain && !domain.startsWith(".") && !domain.endsWith(".");
+}
 function toHtml(text: string): string {
   const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const linked = esc.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
@@ -125,6 +149,25 @@ export default function BulkEmail() {
     if (r.ok) setVerified({ valid: r.data.valid as string[], invalid: r.data.invalid as string[] });
   }
 
+  // Download ONLY the verified-valid set, generated client-side from the
+  // list Filter & verify already computed. Dead, duplicate, malformed and
+  // not-checked addresses are never in the file. No new API route, no new
+  // server storage of the list.
+  function downloadVerified(format: "csv" | "txt") {
+    const list = verified?.valid ?? [];
+    if (!list.length) return;
+    const content = format === "csv" ? `email\n${list.join("\n")}\n` : `${list.join("\n")}\n`;
+    const blob = new Blob([content], { type: format === "csv" ? "text/csv;charset=utf-8" : "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = format === "csv" ? "verified-emails.csv" : "verified-emails.txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async function onAttach(files: FileList | null) {
     setAttachErr("");
     if (!files) return;
@@ -178,9 +221,9 @@ export default function BulkEmail() {
 
   if (plan !== null && plan !== "pro") {
     return (
-      <main className="mx-auto w-full max-w-[900px] px-4 py-10">
+      <main className="mx-auto w-full max-w-[900px] px-4 py-6 sm:py-10">
         <h1 className="text-3xl font-bold">Bulk Email</h1>
-        <section className="card mt-6 space-y-4 p-5">
+        <section className="card mt-6 space-y-4 p-4 sm:p-5">
           <p className="text-muted">Bulk email is a Pro feature. Pro members get their own panel: compose, paste or upload contacts, track who opened and who clicked, attach files, and fire webhooks on every event.</p>
           <Link href="/checkout" className="btn-primary">Go Pro — $19/mo</Link>
         </section>
@@ -188,13 +231,23 @@ export default function BulkEmail() {
     );
   }
 
+  // Bucket breakdown for the recipients summary. Every found address lands
+  // in exactly one bucket, so the buckets always sum to the found total:
+  // valid + dead + shapeDropped + notChecked = extracted.length, where
+  // notChecked is the remainder over the server's 200-per-check cap
+  // (it verifies at most 200 per call). Duplicates/malformed tokens never
+  // entered "found", so they are reported separately.
+  const dropStats = extracted.length > 0 ? pasteStats(paste) : { duplicates: 0, malformed: 0 };
+  const shapeDropped = verified ? extracted.filter((e) => !serverShapeOk(e)).length : 0;
+  const notChecked = verified ? Math.max(0, extracted.length - verified.valid.length - verified.invalid.length - shapeDropped) : 0;
+
   return (
-    <main className="mx-auto w-full max-w-[900px] px-4 py-10">
+    <main className="mx-auto w-full max-w-[900px] px-4 py-6 sm:py-10">
       <h1 className="text-3xl font-bold">Bulk Email</h1>
       <p className="mt-1 text-sm text-muted">Send only to people who gave you permission. Every mail carries an unsubscribe link, and unsubscribed addresses are never mailed again.</p>
       <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). A list bigger than one day&apos;s ceiling drains day by day — unsent addresses stay queued and the Resume button sends the next batch. Tick Auto-drain at compose time and the queue continues automatically each day instead — still never above your provider&apos;s daily cap.</p>
 
-      <section className="card mt-6 space-y-4 p-5" aria-label="Provider settings">
+      <section className="card mt-6 space-y-4 p-4 sm:p-5" aria-label="Provider settings">
         <h2 className="text-xl font-bold">1. Your sending provider (free)</h2>
         <div>
           <label className="label" htmlFor="be-prov">Provider</label>
@@ -242,7 +295,7 @@ export default function BulkEmail() {
         {testMsg && <p className={`text-sm ${testOk ? "text-success" : "text-danger"}`} role={testOk ? "status" : "alert"}>{testMsg}</p>}
       </section>
 
-      <section className="card mt-6 space-y-4 p-5" aria-label="Compose campaign">
+      <section className="card mt-6 space-y-4 p-4 sm:p-5" aria-label="Compose campaign">
         <h2 className="text-xl font-bold">2. Compose</h2>
         <div><label className="label" htmlFor="be-tpl">Template</label><select id="be-tpl" className="input" value={template} onChange={(e) => setTemplate(e.target.value)}><option value="simple">Simple</option><option value="announcement">Announcement</option><option value="offer">Offer</option></select></div>
         <div><label className="label" htmlFor="be-subj">Subject</label><input id="be-subj" className="input" value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
@@ -265,7 +318,7 @@ export default function BulkEmail() {
         </div>
       </section>
 
-      <section className="card mt-6 space-y-4 p-5" aria-label="Recipients">
+      <section className="card mt-6 space-y-4 p-4 sm:p-5" aria-label="Recipients">
         <h2 className="text-xl font-bold">3. Recipients — paste or upload</h2>
         <div>
           <label className="label" htmlFor="be-paste">Paste emails (any text — only email addresses are kept)</label>
@@ -275,14 +328,38 @@ export default function BulkEmail() {
           <label className="label" htmlFor="be-csv">Or upload a CSV file <span className="font-normal text-muted">(Excel: save as CSV first)</span></label>
           <input id="be-csv" ref={fileRef} className="input" type="file" accept=".csv,.txt" onChange={(e) => onCsvFile(e.target.files?.[0])} />
         </div>
-        <button type="button" className="btn-primary" onClick={() => void verify()}>Filter &amp; verify</button>
+        <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => void verify()}>Filter &amp; verify</button>
         {extracted.length > 0 && (
-          <p className="text-sm text-muted">
-            Found {extracted.length} addresses{verified ? ` — ${verified.valid.length} valid (mail server exists), ${verified.invalid.length} dead.` : " — verifying…"}
-          </p>
+          <div className="space-y-1 text-sm text-muted">
+            <p>Found {extracted.length} unique addresses{verified ? ":" : " — verifying…"}</p>
+            {verified && (
+              <>
+                <p>Valid (mail server exists): {verified.valid.length}</p>
+                <p>Dead (no mail server): {verified.invalid.length}</p>
+                {shapeDropped > 0 && <p>Not checked (failed the server&apos;s stricter shape check): {shapeDropped}</p>}
+                {notChecked > 0 && <p>Not checked (over the 200-per-check limit — check the rest in a smaller batch, or send only the verified set): {notChecked}</p>}
+              </>
+            )}
+            {(dropStats.duplicates > 0 || dropStats.malformed > 0) && (
+              <p>Also dropped from your paste before checking: {dropStats.duplicates} duplicates, {dropStats.malformed} malformed tokens.</p>
+            )}
+          </div>
         )}
         {verified && verified.invalid.length > 0 && (
-          <p className="text-sm text-muted break-words">Dead addresses (won&apos;t be sent): {verified.invalid.slice(0, 20).join(", ")}{verified.invalid.length > 20 ? "…" : ""}</p>
+          <p className="text-sm text-muted break-words">Dead addresses (won&apos;t be sent): {verified.invalid.slice(0, 20).join(", ")}{verified.invalid.length > 20 ? `, and ${verified.invalid.length - 20} more` : ""}</p>
+        )}
+        {verified && (
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="btn-ghost flex-1 sm:flex-none" disabled={verified.valid.length === 0} onClick={() => downloadVerified("csv")}>
+              Download verified (CSV{verified.valid.length > 0 ? `, ${verified.valid.length}` : ""})
+            </button>
+            <button type="button" className="btn-ghost flex-1 sm:flex-none" disabled={verified.valid.length === 0} onClick={() => downloadVerified("txt")}>
+              Download verified (TXT{verified.valid.length > 0 ? `, ${verified.valid.length}` : ""})
+            </button>
+          </div>
+        )}
+        {verified && verified.valid.length === 0 && (
+          <p className="text-sm text-muted">No verified addresses to download or send yet.</p>
         )}
         <button type="button" className="btn-primary btn-block" disabled={sending || !(verified?.valid.length || extracted.length)} onClick={() => void send()}>
           {sending ? "Sending…" : `Send to ${(verified?.valid ?? extracted).length} recipients (max 50 per send; daily cap follows your provider's free tier)`}
@@ -301,7 +378,7 @@ export default function BulkEmail() {
         )}
       </section>
 
-      <section className="card mt-6 space-y-4 p-5" aria-label="Campaigns">
+      <section className="card mt-6 space-y-4 p-4 sm:p-5" aria-label="Campaigns">
         <h2 className="text-xl font-bold">4. Campaigns — who saw it, who clicked it</h2>
         {campaigns.length === 0 && <p className="text-sm text-muted">No campaigns yet.</p>}
         {campaigns.map((c) => (
