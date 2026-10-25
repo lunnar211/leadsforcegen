@@ -11,9 +11,15 @@ import { sendTelegram } from "@/lib/telegram";
  * browser-side check is bypassable: anyone can call the Supabase API
  * directly with a temp-mail address and spin up bot accounts. This
  * route enforces, before any account exists:
- *   1. Rate limit: 10 signups/hour per IP + 5/hour per email, so a
+ *   1. Strict input validation: email local/domain parts allow only
+ *      letters, digits and . _ % + - (no quotes, spaces, semicolons
+ *      or other SQL metacharacters — the old loose shape check let
+ *      a quote-containing address through to account creation), and
+ *      passwords are capped at 72 characters (the bcrypt/GoTrue
+ *      limit) instead of relying on Supabase to reject them.
+ *   2. Rate limit: 10 signups/hour per IP + 5/hour per email, so a
  *      bot farm can't mass-create accounts even with real domains.
- *   2. Disposable-domain block: 9,927 known temp-mail domains
+ *   3. Disposable-domain block: 9,927 known temp-mail domains
  *      (community blocklist snapshot) — exact domain or subdomain.
  * The account is created pre-confirmed (email confirmation is OFF by
  * design); the browser then signs in with the same password to get
@@ -30,11 +36,14 @@ export async function POST(req: Request) {
   const email = typeof body.email === "string" ? body.email.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email)) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   }
   if (password.length < 6) {
     return NextResponse.json({ error: "Password must be at least 6 characters." }, { status: 400 });
+  }
+  if (password.length > 72) {
+    return NextResponse.json({ error: "Password must be at most 72 characters." }, { status: 400 });
   }
 
   const ip = clientIp(req);
