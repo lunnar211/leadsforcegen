@@ -2,7 +2,7 @@
 
 AI-powered lead generation SaaS. Search company-level prospects for any niche, score them with AI, and generate outreach.
 
-- **Free plan:** 10 leads/day, AI scoring, search history (no CSV export)
+- **Free plan:** 30 leads/day, AI scoring, search history (no CSV export)
 - **Pro plan:** unlimited leads, CSV export, full AI outreach — $19/mo (₹1,499 via Razorpay)
 - **Stack (all free tiers):** Next.js (App Router, TypeScript) + Tailwind, Supabase (auth + database), Groq AI, Vercel hosting, payments via Razorpay / Stripe / Lemon Squeezy / Paddle / Binance Pay / manual (eSewa, Khalti, bank)
 - **Admin panel** at `/admin` for the owner: users, plans, activity, subscriptions
@@ -78,6 +78,7 @@ git push -u origin main
 | `/` | Landing: hero, features, Free vs Pro pricing |
 | `/login`, `/signup` | Supabase Auth (demo-mode notice when not configured) |
 | `/dashboard` | Lead search, free-limit enforcement, AI scores, Pro CSV export, AI outreach, search history |
+| `/bulk-email` | Pro bulk email: paste/upload recipient lists, verify, one-click send to all, campaigns |
 | `/checkout` | Pro checkout via Razorpay / Stripe |
 | `/admin` | Owner panel: stats, users (plan / active toggles), activity log, subscriptions |
 | `POST /api/ai/leads` | AI company prospects via Groq; labeled sample fallback |
