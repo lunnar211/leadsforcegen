@@ -330,54 +330,66 @@ async function overpass(lat: number, lon: number, niche: string, terms: string[]
 
 // Last-resort POI source: the official OpenStreetMap API's map call.
 // Different infrastructure from Overpass (which currently rejects or
-// times out for datacenter IPs). A 2x2 tile grid of map calls covers
-// roughly 12km x 12km around the geocoded center (each tile far below
-// the API's max bbox area), fetched in parallel and deduped. Used ONLY
-// when every Overpass mirror fails; searches are cached, so this stays
-// occasional. Ways get a center computed from their member nodes in the
-// same payload. OSM_API_URL override exists for testing.
+// times out for datacenter IPs). A 3x3 tile grid of map calls covers
+// roughly 12km x 12km around the geocoded center, fetched in parallel
+// and deduped. Used ONLY when every Overpass mirror fails; searches
+// are cached, so this stays occasional. Ways get a center computed
+// from their member nodes in the same payload. OSM_API_URL override
+// exists for testing.
+//
+// ADAPTIVE SPLITTING (2026-10-25, Delhi dentists returned ZERO):
+// in dense cities every 0.11° tile 400s on the API's 50k-node limit,
+// so the old grid returned nothing and the only fallback was one
+// 0.38km center tile — which often holds zero businesses of the
+// searched niche. Now a 400 splits that tile into 4 quadrants and
+// retries, down to ~0.38km-wide tiles: dense areas answer with real
+// multi-kilometre coverage instead of nothing. Bounded: 6-way
+// concurrency, 60 fetches max, no new fetch started after 11s.
 async function osmApiFallback(lat: number, lon: number): Promise<OsmElement[]> {
   const base = process.env.OSM_API_URL || "https://api.openstreetmap.org/api/0.6";
   const d = 0.055; // tile half-box (~6 km); grid covers +/-0.11 deg (~12 km)
-  const tile = async (cLat: number, cLon: number, half: number = d): Promise<(OsmElement & { nodes?: number[] })[]> => {
-    try {
-      const url = `${base}/map.json?bbox=${cLon - half},${cLat - half},${cLon + half},${cLat + half}`;
-      const res = await fetch(url, {
-        headers: { "User-Agent": UA, Accept: "application/json" },
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!res.ok) return [];
-      const data = (await res.json()) as { elements?: (OsmElement & { nodes?: number[] })[] };
-      return data.elements || [];
-    } catch {
-      return [];
+  const started = Date.now();
+  const byKey = new Map<string, OsmElement & { nodes?: number[] }>();
+  type Job = { cLat: number; cLon: number; half: number };
+  const queue: Job[] = [
+    { cLat: lat - d, cLon: lon - d, half: d }, { cLat: lat - d, cLon: lon, half: d }, { cLat: lat - d, cLon: lon + d, half: d },
+    { cLat: lat, cLon: lon - d, half: d }, { cLat: lat, cLon: lon, half: d }, { cLat: lat, cLon: lon + d, half: d },
+    { cLat: lat + d, cLon: lon - d, half: d }, { cLat: lat + d, cLon: lon, half: d }, { cLat: lat + d, cLon: lon + d, half: d },
+  ];
+  let fetches = 0;
+  const worker = async () => {
+    while (queue.length > 0) {
+      if (fetches >= 60 || Date.now() - started > 11_000) return;
+      const job = queue.shift();
+      if (!job) return;
+      fetches++;
+      try {
+        const url = `${base}/map.json?bbox=${job.cLon - job.half},${job.cLat - job.half},${job.cLon + job.half},${job.cLat + job.half}`;
+        const res = await fetch(url, {
+          headers: { "User-Agent": UA, Accept: "application/json" },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (res.status === 400 && job.half > 0.0017) {
+          // Too many nodes in this tile: split into 4 quadrants.
+          const h = job.half / 2;
+          queue.push(
+            { cLat: job.cLat - h, cLon: job.cLon - h, half: h },
+            { cLat: job.cLat - h, cLon: job.cLon + h, half: h },
+            { cLat: job.cLat + h, cLon: job.cLon - h, half: h },
+            { cLat: job.cLat + h, cLon: job.cLon + h, half: h },
+          );
+          continue;
+        }
+        if (!res.ok) continue;
+        const data = (await res.json()) as { elements?: (OsmElement & { nodes?: number[] })[] };
+        for (const el of data.elements || []) byKey.set(`${el.type}/${el.id}`, el);
+      } catch {
+        // A failed tile just narrows coverage; other tiles still answer.
+      }
     }
   };
-  const settled = await Promise.allSettled([
-    tile(lat - d, lon - d), tile(lat - d, lon), tile(lat - d, lon + d),
-    tile(lat, lon - d), tile(lat, lon), tile(lat, lon + d),
-    tile(lat + d, lon - d), tile(lat + d, lon), tile(lat + d, lon + d),
-  ]);
-  const byKey = new Map<string, OsmElement & { nodes?: number[] }>();
-  for (const s of settled) {
-    if (s.status !== "fulfilled") continue;
-    for (const el of s.value) byKey.set(`${el.type}/${el.id}`, el);
-  }
-  let els = [...byKey.values()];
-  // DENSE-CITY CENTER TILE (2026-10-24, measured): in dense cities
-  // every 0.11° tile 400s on the API's 50k-node limit, so the grid
-  // returns nothing — and with Overpass dead from datacenter IPs
-  // (proven by leg-labeled probe 2026-10-25) the search is empty.
-  // A 0.0017° center tile (~0.38×0.24 km) answers in ~10s / 2.9 MB:
-  // grid fails fast at ~3s, so grid + center tile ≈ 13s, inside the
-  // 15s map cap. It covers only the center point, not the whole city
-  // — a stopgap that makes dense cities non-empty, not a full-city
-  // answer. Fires only when the grid yields nothing.
-  if (els.length === 0) {
-    const centerEls = await tile(lat, lon, 0.0017);
-    for (const el of centerEls) byKey.set(`${el.type}/${el.id}`, el);
-    els = [...byKey.values()];
-  }
+  await Promise.allSettled([worker(), worker(), worker(), worker(), worker(), worker()]);
+  const els = [...byKey.values()];
   const coords = new Map<number, { lat: number; lon: number }>();
   for (const el of els) {
     if (el.type === "node" && el.lat !== undefined && el.lon !== undefined) coords.set(el.id, { lat: el.lat, lon: el.lon });
@@ -397,6 +409,43 @@ async function osmApiFallback(lat: number, lon: number): Promise<OsmElement[]> {
     out.push(el);
   }
   return out;
+}
+
+// City-wide backstop: Nominatim's full-text search over OSM objects.
+// One request ("dentist in Delhi, India") returns real POIs across the
+// whole city — no tiles, no 50k-node limit — where the tile grid can
+// still come up empty in ultra-dense cores. Results carry name +
+// location + class/type (e.g. amenity=dentist) but usually no phone or
+// website, so this leg runs DELAYED 8s inside the map race: Overpass
+// and the split-tile OSM leg get first shot at richer results, and
+// Nominatim only wins when they are empty or slow. It answers by
+// ~14s, inside the 15s map cap. Nominatim's policy (1 req/s, named
+// User-Agent) is respected: one call per search, identified UA.
+const BUSINESS_KEYS = new Set(["amenity", "shop", "office", "tourism", "leisure", "healthcare", "craft"]);
+async function nominatimPoi(niche: string, location: string): Promise<OsmElement[]> {
+  try {
+    const q = `${niche} in ${location}`;
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=50&addressdetails=0&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return [];
+    const rows = (await res.json()) as { place_id?: number; lat?: string; lon?: string; display_name?: string; class?: string; type?: string }[];
+    const out: OsmElement[] = [];
+    for (const r of rows) {
+      const name = (r.display_name || "").split(",")[0].trim();
+      const plat = parseFloat(r.lat || "");
+      const plon = parseFloat(r.lon || "");
+      if (!name || !Number.isFinite(plat) || !Number.isFinite(plon)) continue;
+      const tags: Record<string, string> = { name };
+      if (r.class && BUSINESS_KEYS.has(r.class) && r.type) tags[r.class] = r.type;
+      out.push({ type: "node", id: r.place_id || 0, lat: plat, lon: plon, tags });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
@@ -651,9 +700,13 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       // winner (request-scoped local, never module state) so the lead's
       // provenance names the actual source. This is also better
       // provenance for users, permanently.
+      const delayedNominatim = new Promise<OsmElement[]>((resolve) =>
+        setTimeout(() => nominatimPoi(niche, location).then(resolve, () => resolve([])), 8000),
+      );
       const mapChain = Promise.any([
         nonEmpty(overpass(geo.lat, geo.lon, niche, terms)).then((els) => ({ els, leg: "overpass" })),
         nonEmpty(osmApiFallback(geo.lat, geo.lon)).then((els) => ({ els, leg: "osm-api" })),
+        nonEmpty(delayedNominatim).then((els) => ({ els, leg: "nominatim" })),
       ]).catch(() => ({ els: [] as OsmElement[], leg: "none" }));
       const mapCap = new Promise<{ els: OsmElement[]; leg: string }>((r) =>
         setTimeout(() => r({ els: [], leg: "timeout" }), 15000),
@@ -717,7 +770,9 @@ export async function searchEverywhere(niche: string, location: string, limit: n
             ? "OpenStreetMap (Overpass)"
             : mapLeg === "osm-api"
               ? "OpenStreetMap (OSM API)"
-              : "OpenStreetMap",
+              : mapLeg === "nominatim"
+                ? "OpenStreetMap (Nominatim)"
+                : "OpenStreetMap",
       });
       if (candidates.length >= Math.max(limit * 3, 30)) break;
     }
