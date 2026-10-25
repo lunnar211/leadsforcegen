@@ -428,7 +428,15 @@ async function osmApiFallback(lat: number, lon: number): Promise<OsmElement[]> {
 // ~14s, inside the 15s map cap. Nominatim's policy (1 req/s, named
 // User-Agent) is respected: one call per search, identified UA.
 const BUSINESS_KEYS = new Set(["amenity", "shop", "office", "tourism", "leisure", "healthcare", "craft"]);
-async function nominatimPoi(niche: string, location: string): Promise<OsmElement[]> {
+// GEO-FILTER (2026-10-25, measured live): Nominatim's full-text leg
+// ("<niche> in <location>") returns some businesses far outside the
+// searched city — a Delhi dentist search came back with Singapore
+// (+65) phone numbers. Drop candidates beyond this distance from the
+// geocoded center. 100 km is deliberately generous (a metro sprawl is
+// ~50–60 km radius) so real metro-area businesses survive, while the
+// observed bad rows (~3,900 km away) are killed outright.
+const NOMINATIM_MAX_DIST_KM = 100;
+async function nominatimPoi(niche: string, location: string, center?: { lat: number; lon: number; broad: boolean }): Promise<OsmElement[]> {
   try {
     const q = `${niche} in ${location}`;
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=50&addressdetails=0&q=${encodeURIComponent(q)}`;
@@ -462,6 +470,25 @@ async function nominatimPoi(niche: string, location: string): Promise<OsmElement
         tags,
         ...(osmType && osmId ? { osmType, osmId } : {}),
       });
+    }
+    // Geo-filter: only when a usable city-level center exists. A broad
+    // (country/state) center is nearly meaningless as a radius origin,
+    // so filtering is skipped entirely in that case — fail-open, never
+    // empty a search because the center was uncertain. The inner
+    // try/catch matters: the outer catch returns [] (empty leg), so a
+    // distance-computation error must fall back to the UNFILTERED list
+    // here, never propagate.
+    if (center && !center.broad) {
+      try {
+        return out.filter(
+          (el) =>
+            el.lat !== undefined &&
+            el.lon !== undefined &&
+            haversineKm(center.lat, center.lon, el.lat, el.lon) <= NOMINATIM_MAX_DIST_KM,
+        );
+      } catch {
+        return out;
+      }
     }
     return out;
   } catch {
@@ -808,7 +835,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       // provenance names the actual source. This is also better
       // provenance for users, permanently.
       const delayedNominatim = new Promise<OsmElement[]>((resolve) =>
-        setTimeout(() => nominatimPoi(niche, location).then(resolve, () => resolve([])), 8000),
+        setTimeout(() => nominatimPoi(niche, location, geo).then(resolve, () => resolve([])), 8000),
       );
       const mapChain = Promise.any([
         nonEmpty(overpass(geo.lat, geo.lon, niche, terms)).then((els) => ({ els, leg: "overpass" })),
