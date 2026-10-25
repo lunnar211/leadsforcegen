@@ -90,6 +90,21 @@ export default function BulkEmail() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
   const [sendResult, setSendResult] = useState<{ campaignId: string; sent: number; failed: number; queued: number; blocked: number } | null>(null);
+  // One-click auto-continue loop state. The loop runs sequentially
+  // (one /api/email/send call at a time) until the queue drains, the
+  // server reports no progress (daily cap reached), an error occurs,
+  // or the user presses Stop. sending stays true for the whole loop,
+  // so the Send button is disabled throughout and the loop can never
+  // be started twice (loopRef guards against overlapping calls too).
+  const [loopActive, setLoopActive] = useState(false);
+  const [loopBatch, setLoopBatch] = useState(0);
+  const [loopSent, setLoopSent] = useState(0);
+  const [loopFailed, setLoopFailed] = useState(0);
+  const [loopTotal, setLoopTotal] = useState<number | null>(null);
+  const [loopReason, setLoopReason] = useState<null | "done" | "cap" | "stopped" | "error">(null);
+  const [failedDownload, setFailedDownload] = useState<string[] | null>(null);
+  const loopRef = useRef(false);
+  const stopRef = useRef(false);
   const [testSending, setTestSending] = useState(false);
   const [testMsg, setTestMsg] = useState("");
   const [testOk, setTestOk] = useState(false);
@@ -279,24 +294,103 @@ export default function BulkEmail() {
     else setSendError(r.error || "Could not stop auto-drain.");
   }
 
+  // One-click send: one Send click drains the whole list. Each
+  // /api/email/send call sends up to the remaining daily budget within
+  // its 50s server deadline and leaves the rest queued; this loop then
+  // resumes the same campaign (same campaignId) until the queue is
+  // empty. The server's daily cap is the authority on every call — the
+  // loop never retries past it, splits requests to dodge it, or changes
+  // it: a call that moves nothing while rows are still queued means
+  // the budget is exhausted, so the loop stops as cap-reached.
   async function send(resumeId?: string) {
+    if (loopRef.current) return;
+    loopRef.current = true;
+    stopRef.current = false;
     setSending(true);
     setSendError("");
     setSendResult(null);
+    setFailedDownload(null);
+    setLoopActive(true);
+    setLoopBatch(0);
+    setLoopSent(0);
+    setLoopFailed(0);
+    setLoopTotal(null);
+    setLoopReason(null);
     setLastAutoDrain(!resumeId && autoDrain);
     const h = await headers();
-    const payload: Record<string, unknown> = resumeId
-      ? { campaignId: resumeId, subject, template, bodyHtml: toHtml(message), attachments }
-      : { subject, template, bodyHtml: toHtml(message), recipients: verified?.valid ?? extracted, attachments, autoDrain };
-    const r = await fetch("/api/email/send", { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((x) => x.json()).catch(() => ({}));
-    setSending(false);
-    if (r.ok) {
-      setSendResult(r.data);
-      void load();
-    } else {
-      setSendResult(null);
-      setSendError(r.error || "Send failed. Check your provider settings and try again.");
+    let campaignId: string | undefined = resumeId;
+    let cumulativeSent = 0;
+    let cumulativeFailed = 0;
+    let total: number | null = null;
+    let lastQueued = 0;
+    let lastBlocked = 0;
+    let reason: "done" | "cap" | "stopped" | "error" = "done";
+    let batch = 0;
+    while (true) {
+      if (stopRef.current) { reason = "stopped"; break; }
+      batch += 1;
+      setLoopBatch(batch);
+      const payload: Record<string, unknown> = campaignId
+        ? { campaignId, subject, template, bodyHtml: toHtml(message), attachments }
+        : { subject, template, bodyHtml: toHtml(message), recipients: verified?.valid ?? extracted, attachments, autoDrain };
+      const r = await fetch("/api/email/send", { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((x) => x.json()).catch(() => ({}));
+      if (!r.ok) {
+        reason = "error";
+        setSendError(r.error || "Send failed. Check your provider settings and try again.");
+        break;
+      }
+      campaignId = r.data.campaignId as string;
+      cumulativeSent += r.data.sent as number;
+      cumulativeFailed += r.data.failed as number;
+      lastQueued = r.data.queued as number;
+      lastBlocked = r.data.blocked as number;
+      if (total === null) total = (r.data.sent as number) + (r.data.failed as number) + (r.data.queued as number) + (r.data.blocked as number);
+      setLoopSent(cumulativeSent);
+      setLoopFailed(cumulativeFailed);
+      setLoopTotal(total);
+      setSendResult({ campaignId, sent: cumulativeSent, failed: cumulativeFailed, queued: lastQueued, blocked: lastBlocked });
+      if (lastQueued === 0) { reason = "done"; break; }
+      if (stopRef.current) { reason = "stopped"; break; }
+      // No progress while rows are still queued: the server's daily
+      // budget is exhausted. Stop as cap-reached, never retry past it.
+      if (r.data.sent === 0 && r.data.failed === 0) { reason = "cap"; break; }
     }
+    setLoopReason(reason);
+    setLoopActive(false);
+    setSending(false);
+    loopRef.current = false;
+    if (campaignId) void load();
+    // Failed-address download: the send response carries counts only,
+    // so fetch the campaign's existing detail view (the same route the
+    // panel already uses) and offer the failed set only when the
+    // fetched list provably covers the whole campaign — the detail
+    // route caps at 500 rows, so a truncated list must never become a
+    // partial retry file.
+    if (cumulativeFailed > 0 && campaignId) {
+      const d = await fetch(`/api/email/campaigns?campaignId=${encodeURIComponent(campaignId)}`, { headers: h }).then((x) => x.json()).catch(() => ({}));
+      if (d.ok && Array.isArray(d.data?.recipients) && d.data.recipients.length >= (d.data.campaign?.total ?? 0)) {
+        const failed = (d.data.recipients as { email: string; status: string }[]).filter((r) => r.status === "failed").map((r) => r.email);
+        if (failed.length) setFailedDownload(failed);
+      }
+    }
+  }
+
+  function stopSendLoop() {
+    stopRef.current = true;
+  }
+
+  function downloadFailed() {
+    const list = failedDownload ?? [];
+    if (!list.length) return;
+    const blob = new Blob([`email\n${list.join("\n")}\n`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "failed-emails.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function openCampaign(id: string) {
@@ -345,7 +439,7 @@ export default function BulkEmail() {
     <main className="mx-auto w-full max-w-[900px] px-4 py-6 sm:py-10">
       <h1 className="text-3xl font-bold">Bulk Email</h1>
       <p className="mt-1 text-sm text-muted">Send only to people who gave you permission. Every mail carries an unsubscribe link, and unsubscribed addresses are never mailed again.</p>
-      <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). A list bigger than one day&apos;s ceiling drains day by day — unsent addresses stay queued and the Resume button sends the next batch. Tick Auto-drain at compose time and the queue continues automatically each day instead — still never above your provider&apos;s daily cap. If the LeadsForceGen platform sender is offered above, it sends from the site&apos;s own verified address instead — same unsubscribe footer, same Brevo 300/day cap.</p>
+      <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). One Send click sends the whole list in automatic batches within your provider&apos;s daily cap — no Resume taps needed. A list bigger than one day&apos;s ceiling leaves the rest queued past the cap: Resume them tomorrow, or tick Auto-drain at compose time and the queue continues automatically each day instead — still never above your provider&apos;s daily cap. If the LeadsForceGen platform sender is offered above, it sends from the site&apos;s own verified address instead — same unsubscribe footer, same Brevo 300/day cap.</p>
 
       <section className="card mt-6 space-y-4 p-4 sm:p-5" aria-label="Provider settings">
         <h2 className="text-xl font-bold">1. Your sending provider (free)</h2>
@@ -485,18 +579,37 @@ export default function BulkEmail() {
           <p className="text-sm text-muted">No verified addresses to download or send yet.</p>
         )}
         <button type="button" className="btn-primary btn-block" disabled={sending || !(verified?.valid.length || extracted.length)} onClick={() => void send()}>
-          {sending ? "Sending…" : `Send to ${(verified?.valid ?? extracted).length} recipients (max 50 per send; daily cap follows your provider's free tier)`}
+          {sending ? "Sending…" : `Send to all ${(verified?.valid ?? extracted).length} recipients`}
         </button>
+        <p className="text-sm text-muted">One click sends the whole list in automatic batches, within your provider&apos;s daily cap — no Resume taps needed unless the cap is hit.</p>
         {sendError && <p className="rounded-[var(--radius)] bg-danger-bg p-3 text-sm text-danger" role="alert">{sendError}</p>}
-        {sendResult && (
+        {loopActive && (
+          <div className="rounded-lg border border-border p-3 text-sm">
+            <p>Sending batch {loopBatch}… Sent {loopSent}{loopTotal !== null ? ` of ${loopTotal}` : ""} · Failed {loopFailed}{sendResult ? ` · Still queued: ${sendResult.queued}` : ""}</p>
+            <button type="button" className="btn-ghost mt-2 px-3 py-1.5 text-xs" onClick={() => stopSendLoop()}>Stop sending</button>
+          </div>
+        )}
+        {!loopActive && sendResult && (
           <div className="rounded-lg border border-border p-3 text-sm">
             <p>Sent: {sendResult.sent} · Failed: {sendResult.failed} · Still queued: {sendResult.queued} · Blocked (unsubscribed): {sendResult.blocked}</p>
+            {loopReason === "done" && <p className="mt-2 text-muted">All done — every address is sent, failed, or blocked. Nothing is left queued.</p>}
+            {loopReason === "cap" && sendResult.queued > 0 && <p className="mt-2 text-muted">Daily cap reached — {sendResult.queued} still queued. They continue when you Resume tomorrow after the cap resets. For future campaigns, tick Auto-drain before sending so queued mail continues automatically each day.</p>}
+            {loopReason === "stopped" && sendResult.queued > 0 && <p className="mt-2 text-muted">Stopped by you — {sendResult.queued} still queued. Resume continues from where it stopped.</p>}
+            {loopReason === "error" && sendResult.queued > 0 && <p className="mt-2 text-muted">Stopped on an error — {sendResult.queued} still queued. Check your provider settings, then Resume.</p>}
+            {loopReason === "error" && sendResult.queued === 0 && <p className="mt-2 text-muted">Stopped on an error, but nothing is left queued.</p>}
             {sendResult.queued > 0 && lastAutoDrain && (
               <p className="mt-2 text-muted">Auto-drain is on — the rest will send automatically each day within your provider&apos;s cap. You can stop it from the campaign list below.</p>
             )}
-            {sendResult.queued > 0 && (
-              <button type="button" className="btn-primary mt-2" onClick={() => void send(sendResult.campaignId)}>Resume queued</button>
-            )}
+            <div className="mt-2 flex flex-wrap gap-3">
+              {sendResult.queued > 0 && (
+                <button type="button" className="btn-primary" onClick={() => void send(sendResult.campaignId)}>Resume queued</button>
+              )}
+              {failedDownload && failedDownload.length > 0 && (
+                <button type="button" className="btn-ghost" onClick={() => downloadFailed()}>
+                  Download failed addresses (CSV, {failedDownload.length})
+                </button>
+              )}
+            </div>
           </div>
         )}
       </section>

@@ -8,17 +8,17 @@ import { platformSender } from "@/lib/email/platform";
 import { getBlocklist, isBlocked } from "@/lib/engine/blocklist";
 
 // Caps that keep a campaign inside one serverless invocation and inside
-// each free provider's own tier: 50 recipients per send call (the 60s
-// serverless limit, not a license limit — the panel itself charges
-// nothing per email), and a daily cap that follows the CONNECTED
-// provider's free tier (Brevo 300, Resend 100, SMTP/Gmail 500). The
-// software never limits you beyond what your provider allows; the
-// queue + Resume path lets a big list drain across calls and days.
-const PER_SEND_CAP = 50;
-// Auto-drain campaigns may queue a bigger list (the drain cron sends
-// it day by day within the provider cap); manual campaigns keep the
-// 50-recipient cap above. 5000 bounds abuse without cutting real lists.
-const MAX_DRAIN_RECIPIENTS = 5000;
+// each free provider's own tier: a daily cap that follows the CONNECTED
+// provider's free tier (Brevo 300, Resend 100, SMTP/Gmail 500), and a
+// 50-second per-call deadline (the 60s serverless limit, not a license
+// limit — the panel itself charges nothing per email). Every campaign
+// stores its full supplied list, bounded by MAX_CAMPAIGN_RECIPIENTS
+// (5000 bounds abuse without cutting real lists); each send call then
+// sends only up to the remaining daily budget within its deadline, and
+// anything unsent stays queued for the panel's one-click auto-continue,
+// manual Resume, or the drain cron. The software never limits you
+// beyond what your provider allows.
+const MAX_CAMPAIGN_RECIPIENTS = 5000;
 const DAILY_CAPS: Record<string, number> = { brevo: 300, resend: 100, smtp: 500, platform: 300 };
 const MAX_ATTACH_BYTES = 2 * 1024 * 1024;
 const SEND_DEADLINE_MS = 50_000;
@@ -122,7 +122,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Auto-drain is not available with the platform sender — use manual Resume for queued mail." }, { status: 400 });
     }
     const rawList = Array.isArray(body.recipients) ? body.recipients.join("\n") : String(body.recipients || "");
-    let emails = extractEmails(rawList).slice(0, autoDrain ? MAX_DRAIN_RECIPIENTS : PER_SEND_CAP);
+    // Store the full supplied list (bounded by MAX_CAMPAIGN_RECIPIENTS):
+    // previously manual campaigns stored only the first 50, so the
+    // panel's auto-continue/Resume loop could never reach the rest of
+    // a pasted list. Per-call sending is still bounded by the daily
+    // budget + 50s deadline below, so this changes storage only — the
+    // daily cap, blocklist, and send logic are untouched.
+    let emails = extractEmails(rawList).slice(0, MAX_CAMPAIGN_RECIPIENTS);
     if (!emails.length) {
       return NextResponse.json({ ok: false, error: "No valid email addresses in the list." }, { status: 400 });
     }
