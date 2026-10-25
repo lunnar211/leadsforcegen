@@ -41,6 +41,12 @@ type OsmElement = {
   lon?: number;
   center?: { lat: number; lon: number };
   tags?: Record<string, string>;
+  // Real OSM object reference (Nominatim leg only): Nominatim search
+  // rows carry osm_type/osm_id, which the OSM-details step uses to
+  // fetch the object's published tags. Absent when the row didn't
+  // carry them — those leads simply skip the details step.
+  osmType?: string;
+  osmId?: number;
 };
 
 // Users misspell industries constantly ("Dantist", "Resturant") — and a
@@ -431,7 +437,7 @@ async function nominatimPoi(niche: string, location: string): Promise<OsmElement
       signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return [];
-    const rows = (await res.json()) as { place_id?: number; lat?: string; lon?: string; display_name?: string; class?: string; type?: string }[];
+    const rows = (await res.json()) as { place_id?: number; osm_type?: string; osm_id?: number; lat?: string; lon?: string; display_name?: string; class?: string; type?: string }[];
     const out: OsmElement[] = [];
     for (const r of rows) {
       const name = (r.display_name || "").split(",")[0].trim();
@@ -440,7 +446,22 @@ async function nominatimPoi(niche: string, location: string): Promise<OsmElement
       if (!name || !Number.isFinite(plat) || !Number.isFinite(plon)) continue;
       const tags: Record<string, string> = { name };
       if (r.class && BUSINESS_KEYS.has(r.class) && r.type) tags[r.class] = r.type;
-      out.push({ type: "node", id: r.place_id || 0, lat: plat, lon: plon, tags });
+      // Keep the REAL OSM object reference: Nominatim's place_id is a
+      // search-index id, not an OSM object id, so the old code's
+      // sourceUrl (…/node/<place_id>) pointed at the wrong object.
+      // With osm_type/osm_id the source link and the details lookup
+      // below both address the actual object. Rows without them keep
+      // the old fallback and simply skip the details step.
+      const osmType = ["node", "way", "relation"].includes(r.osm_type || "") ? (r.osm_type as string) : undefined;
+      const osmId = typeof r.osm_id === "number" && r.osm_id > 0 ? r.osm_id : undefined;
+      out.push({
+        type: osmType || "node",
+        id: osmId || r.place_id || 0,
+        lat: plat,
+        lon: plon,
+        tags,
+        ...(osmType && osmId ? { osmType, osmId } : {}),
+      });
     }
     return out;
   } catch {
@@ -722,7 +743,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     }
     const precisePairs = new Set((NICHE_TAGS[niche] || []).map(([k, v]) => `${k}=${v}`));
 
-    type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string; precise: boolean; distKm: number; socialsSeed?: string[]; sourceUrl?: string; sourceName?: string; confidence?: number };
+    type Candidate = { el: OsmElement; name: string; website?: string; phone?: string; email?: string; address?: string; hours?: string; precise: boolean; distKm: number; socialsSeed?: string[]; sourceUrl?: string; sourceName?: string; confidence?: number; osmDetails?: boolean };
     const candidates: Candidate[] = [];
     const seenDomains = new Set<string>();
     for (const el of elements) {
@@ -858,6 +879,72 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     type Enriched = { email?: string; phone?: string; address?: string; websiteAlive: boolean; structured: boolean; socials: string[] };
     const enriched: Enriched[] = candidates.map((c) => ({ email: c.email, phone: c.phone, address: c.address, websiteAlive: false, structured: false, socials: [] }));
 
+    // OSM-DETAILS ENRICHMENT (2026-10-25): Nominatim-leg leads arrive
+    // with only a name + location — no phone, no website — which is
+    // why any-city searches looked thin next to stored-DB rows. The
+    // OSM object behind each one often publishes both as tags, so
+    // look the object up (same public OSM API the map fallback
+    // already uses) and fill them in; the normal enrichment below
+    // then reads any discovered website for emails, exactly like
+    // every other website candidate. Strictly bounded and fail-open:
+    // first 30 Nominatim candidates in ranked order, 4 at a time, no
+    // new fetch after the enrichment deadline, any failure leaves the
+    // lead exactly as it was. Nothing here invents a contact — every
+    // field comes from the object's published tags or the business's
+    // own site, and the source label stays "OpenStreetMap
+    // (Nominatim)" with the description noting the OSM-tags origin.
+    {
+      const targets: { idx: number; osmType: string; osmId: number }[] = [];
+      for (let idx = 0; idx < candidates.length && targets.length < 30; idx++) {
+        const c = candidates[idx];
+        if (c.sourceName !== "OpenStreetMap (Nominatim)") continue;
+        if (c.website && c.phone) continue;
+        const ot = c.el.osmType;
+        const oi = c.el.osmId;
+        if (!ot || !oi) continue;
+        targets.push({ idx, osmType: ot, osmId: oi });
+      }
+      const osmBase = process.env.OSM_API_URL || "https://api.openstreetmap.org/api/0.6";
+      const fetchDetail = async (t: { idx: number; osmType: string; osmId: number }): Promise<void> => {
+        if (Date.now() > deadline) return;
+        try {
+          const res = await fetch(`${osmBase}/${t.osmType}/${t.osmId}.json`, {
+            headers: { "User-Agent": UA, Accept: "application/json" },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!res.ok) return;
+          const data = (await res.json()) as { elements?: { tags?: Record<string, string> }[] };
+          const tags = data.elements?.[0]?.tags || {};
+          const c = candidates[t.idx];
+          const e = enriched[t.idx];
+          const website = tags["contact:website"] || tags.website;
+          const phone = tags["contact:phone"] || tags.phone;
+          let filled = false;
+          if (website && !c.website) {
+            // Don't adopt a website another candidate already owns —
+            // the merge deduped by domain before this step ran.
+            const dom = domainOf(website);
+            if (!dom || !seenDomains.has(dom)) {
+              c.website = website;
+              if (dom) seenDomains.add(dom);
+              filled = true;
+            }
+          }
+          if (phone && !c.phone) {
+            c.phone = phone;
+            e.phone = phone;
+            filled = true;
+          }
+          if (filled) c.osmDetails = true;
+        } catch { /* fail-open: the bare lead still serves */ }
+      };
+      for (let i = 0; i < targets.length; i += 4) {
+        if (Date.now() > deadline) break;
+        await Promise.all(targets.slice(i, i + 4).map(fetchDetail));
+      }
+      tlog("osm-details", `targets=${targets.length}`);
+    }
+
     const enrichOne = async (idx: number): Promise<void> => {
       const c = candidates[idx];
       const e = enriched[idx];
@@ -968,7 +1055,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         location: e.address || location,
         size: "",
         website: c.website ? domainOf(c.website) : "",
-        description: `Real business found via ${c.sourceName || "OpenStreetMap"}${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}. Contacts are published by the business itself — verify before outreach.`,
+        description: `Real business found via ${c.sourceName || "OpenStreetMap"}${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}${c.osmDetails ? ". Phone/website from its OpenStreetMap listing" : ""}. Contacts are published by the business itself — verify before outreach.`,
         score,
         email,
         phone,

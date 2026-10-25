@@ -26,9 +26,11 @@ function toHtml(text: string): string {
 export default function BulkEmail() {
   const [plan, setPlan] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [prov, setProv] = useState("brevo");
+  // SMTP (Gmail) is the default: it needs no API key — just a Gmail
+  // address + app password. Brevo/Resend stay as alternatives below.
+  const [prov, setProv] = useState("smtp");
   const [apiKey, setApiKey] = useState("");
-  const [smtp, setSmtp] = useState({ host: "", port: "587", user: "", pass: "" });
+  const [smtp, setSmtp] = useState({ host: "smtp.gmail.com", port: "587", user: "", pass: "" });
   const [senderName, setSenderName] = useState("");
   const [senderEmail, setSenderEmail] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -45,6 +47,9 @@ export default function BulkEmail() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
   const [sendResult, setSendResult] = useState<{ campaignId: string; sent: number; failed: number; queued: number; blocked: number } | null>(null);
+  const [testSending, setTestSending] = useState(false);
+  const [testMsg, setTestMsg] = useState("");
+  const [testOk, setTestOk] = useState(false);
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [detail, setDetail] = useState<{ campaign: Campaign; recipients: RecipientRow[] } | null>(null);
@@ -82,8 +87,23 @@ export default function BulkEmail() {
     if (prov === "smtp") payload.host = smtp.host, payload.port = smtp.port, payload.user = smtp.user, payload.pass = smtp.pass;
     else payload.apiKey = apiKey;
     const r = await fetch("/api/email/settings", { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((x) => x.json()).catch(() => ({}));
-    setSaveMsg(r.ok ? "Settings saved. Your provider key is stored encrypted." : (r.error || "Could not save settings."));
+    setSaveMsg(r.ok ? "Settings saved. Your credentials are stored encrypted." : (r.error || "Could not save settings."));
     if (r.ok) void load();
+  }
+
+  async function testSend() {
+    setTestSending(true);
+    setTestMsg("");
+    const h = await headers();
+    const r = await fetch("/api/email/test", { method: "POST", headers: h }).then((x) => x.json()).catch(() => ({}));
+    setTestSending(false);
+    if (r.ok) {
+      setTestOk(true);
+      setTestMsg(`Test email sent to ${r.data?.to || senderEmail}. Check your inbox (and spam folder).`);
+    } else {
+      setTestOk(false);
+      setTestMsg(r.error || "Test email failed.");
+    }
   }
 
   function onCsvFile(f: File | undefined) {
@@ -160,35 +180,55 @@ export default function BulkEmail() {
   return (
     <main className="mx-auto w-full max-w-[900px] px-4 py-10">
       <h1 className="text-3xl font-bold">Bulk Email</h1>
-      <p className="mt-1 text-sm text-muted">Send only to people who gave you permission. Every mail carries an unsubscribe link, and unsubscribed addresses are never mailed again. Sending goes through your own free provider key — never a shared address.</p>
+      <p className="mt-1 text-sm text-muted">Send only to people who gave you permission. Every mail carries an unsubscribe link, and unsubscribed addresses are never mailed again.</p>
+      <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). A list bigger than one day&apos;s ceiling drains day by day — unsent addresses stay queued and the Resume button sends the next batch.</p>
 
       <section className="card mt-6 space-y-4 p-5" aria-label="Provider settings">
         <h2 className="text-xl font-bold">1. Your sending provider (free)</h2>
         <div>
           <label className="label" htmlFor="be-prov">Provider</label>
           <select id="be-prov" className="input" value={prov} onChange={(e) => setProv(e.target.value)}>
-            <option value="brevo">Brevo — 300 emails/day free</option>
-            <option value="resend">Resend — 100 emails/day free</option>
-            <option value="smtp">SMTP — Gmail or any mail server</option>
+            <option value="smtp">Gmail — no API key needed (SMTP, 500/day free)</option>
+            <option value="brevo">Brevo — API key needed (300/day free)</option>
+            <option value="resend">Resend — API key needed (100/day free)</option>
           </select>
         </div>
         {prov === "smtp" ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div><label className="label" htmlFor="be-host">SMTP host</label><input id="be-host" className="input" placeholder="smtp.gmail.com" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} /></div>
-            <div><label className="label" htmlFor="be-port">Port</label><input id="be-port" className="input" placeholder="587" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: e.target.value })} /></div>
-            <div><label className="label" htmlFor="be-user">Username</label><input id="be-user" className="input" value={smtp.user} onChange={(e) => setSmtp({ ...smtp, user: e.target.value })} /></div>
-            <div><label className="label" htmlFor="be-pass">Password / app password</label><input id="be-pass" className="input" type="password" value={smtp.pass} onChange={(e) => setSmtp({ ...smtp, pass: e.target.value })} /></div>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label className="label" htmlFor="be-user">Gmail address</label><input id="be-user" className="input" placeholder="you@gmail.com" value={smtp.user} onChange={(e) => setSmtp({ ...smtp, user: e.target.value })} /></div>
+              <div><label className="label" htmlFor="be-pass">Gmail app password</label><input id="be-pass" className="input" type="password" placeholder="16-character app password" value={smtp.pass} onChange={(e) => setSmtp({ ...smtp, pass: e.target.value })} autoComplete="off" /></div>
+            </div>
+            <p className="text-sm text-muted">Get an app password: Google Account → Security → turn on 2-Step Verification → App passwords → generate one for Mail → paste it here. Never paste your normal Gmail password — Google blocks that, and an app password can be revoked any time. <a className="underline" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Open Google App passwords</a>.</p>
+            <details>
+              <summary className="cursor-pointer text-sm font-medium">Advanced: custom mail server</summary>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div><label className="label" htmlFor="be-host">SMTP host</label><input id="be-host" className="input" placeholder="smtp.gmail.com" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} /></div>
+                <div><label className="label" htmlFor="be-port">Port</label><input id="be-port" className="input" placeholder="587" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: e.target.value })} /></div>
+              </div>
+              <p className="mt-2 text-xs text-muted">Saved server details are never shown here; saving replaces them. For Gmail, leave these at smtp.gmail.com / 587.</p>
+            </details>
           </div>
         ) : (
-          <div><label className="label" htmlFor="be-key">API key {settings?.keySet ? "(saved — paste a new one to replace it)" : ""}</label><input id="be-key" className="input" type="password" placeholder={prov === "brevo" ? "xkeysib-…" : "re_…"} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" /></div>
+          <div>
+            <p className="mb-2 text-sm text-muted">Brevo and Resend work by API key — that is their design, not a choice of this panel. Create a free account with them, copy the key, and paste it here.</p>
+            <label className="label" htmlFor="be-key">API key {settings?.keySet ? "(saved — paste a new one to replace it)" : ""}</label><input id="be-key" className="input" type="password" placeholder={prov === "brevo" ? "xkeysib-…" : "re_…"} value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
+          </div>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label" htmlFor="be-sname">Sender name</label><input id="be-sname" className="input" value={senderName} onChange={(e) => setSenderName(e.target.value)} /></div>
           <div><label className="label" htmlFor="be-semail">Sender email</label><input id="be-semail" className="input" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} /></div>
         </div>
         <div><label className="label" htmlFor="be-hook">Webhook URL <span className="font-normal text-muted">(optional — gets sent/opened/clicked/unsubscribed events)</span></label><input id="be-hook" className="input" placeholder="https://your-site.com/hooks/email" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} /></div>
-        <button type="button" className="btn-primary" onClick={() => void saveSettings()}>Save settings</button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className="btn-primary" onClick={() => void saveSettings()}>Save settings</button>
+          <button type="button" className="btn-ghost" disabled={testSending || !settings?.keySet} onClick={() => void testSend()}>
+            {testSending ? "Sending test…" : "Send test email to myself"}
+          </button>
+        </div>
+        {!settings?.keySet && <p className="text-xs text-muted">Save your settings first — the test email goes to your sender address using those saved settings.</p>}
         {saveMsg && <p className="text-sm text-muted">{saveMsg}</p>}
+        {testMsg && <p className={`text-sm ${testOk ? "text-success" : "text-danger"}`} role={testOk ? "status" : "alert"}>{testMsg}</p>}
       </section>
 
       <section className="card mt-6 space-y-4 p-5" aria-label="Compose campaign">
