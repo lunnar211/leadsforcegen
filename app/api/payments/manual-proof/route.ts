@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { MANUAL_METHODS, MANUAL_PRICES_NPR } from "@/lib/payments/plans";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
-import { sendTelegram } from "@/lib/telegram";
+import { sendAdminAlert } from "@/lib/telegram";
 
 export const maxDuration = 30;
 
@@ -189,10 +189,14 @@ export async function POST(req: Request) {
       if (data && data[0]) await admin.from("coupons").update({ used_count: Number(data[0].used_count || 0) + 1 }).eq("id", data[0].id);
     } catch { /* ignore */ }
   }
-  // Ping the owner's Telegram bot so the proof gets reviewed fast
-  // (fails open — a Telegram outage never blocks a buyer).
-  await sendTelegram(
-    `💰 New payment proof — NPR ${amount.toLocaleString()} via ${method} (${months} mo)${appliedCoupon ? ` with coupon ${appliedCoupon}` : ""} from ${userData.user.email || "a buyer"}.\nReview it: send /payments here, or open the admin panel.`,
+  // Fail-open admin alert so the proof gets reviewed fast. Deliberately
+  // NOT awaited (the previous version awaited sendTelegram, so a
+  // Telegram outage added latency to the buyer's response). Never
+  // throws, never blocks. No proof file content, no storage path, no
+  // instruction body — only what the admin needs to review. Duplicate
+  // submissions return early above and do not re-alert.
+  sendAdminAlert(
+    `Payment proof submitted: ${userData.user.email || "a buyer"}, gateway ${method}, amount ${amount} NPR, pending approval in /admin`,
   );
   return NextResponse.json({
     ok: true,
