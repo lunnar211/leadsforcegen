@@ -30,11 +30,40 @@ Both write directly to Postgres. No dashboard CSV importer, ever again.
    Connection string → copy the URI (it contains the database password;
    use "Reset database password" there if it's forgotten).
    **Never paste this value into chat, code, or git.**
-4. **Import both workflow JSONs** (Workflows → Import from File).
+4. **Import the workflow JSONs you want** (Workflows → Import from File).
+   Import ONE set for monthly refresh, not both: either the split files
+   (`lead-db-refresh-ae/np/us/citypacks.json`, recommended) OR the
+   combined `lead-db-monthly-refresh.json` (superseded — its name says so
+   in the n8n UI). Importing both would run the same refresh twice.
 5. **Create the Telegram credential** in n8n (Credentials → Telegram API):
    paste the @LeadsForceGenAdminBot token directly into n8n. The report
    nodes already target Dipesh's admin chat (7153926241).
-6. **Activate** both workflows (toggle top-right).
+6. **Activate** the workflows you imported (toggle top-right).
+
+## Notes the operator must know
+
+- **Leads-generation webhook input is sanitised, not trusted.** The
+  `leads-generation.json` workflow runs a "Sanitize input" step before
+  any shell command: niche/city are stripped to letters, digits, spaces,
+  hyphens and underscores (max 50 chars), limit is clamped to 1–5000.
+  Raw webhook bodies never reach a shell. Still, treat the webhook URL
+  as private — n8n's webhook node carries no authentication in this
+  export, so do not publish the URL, and enable n8n webhook auth if the
+  URL ever has to be shared.
+- **The packs project is not refreshed by these workflows.** The second
+  free Supabase project (LeadForge-Packs, London + Toronto) uses the
+  same table definition (`supabase/places.sql` + `supabase/places-quality.sql`
+  applied to that project), but its rows arrive by manual CSV import
+  through the Supabase dashboard — no workflow upserts into it yet.
+  `refresh_places.py CITY-PACKS` refreshes the 11 warehouse files and
+  upserts only Karachi + Dhaka into the MAIN hot table.
+- **US-METROS cannot fill the hot table.** `refresh_places.py US-METROS`
+  extracts all 10 metros to warehouse files but upserts only NYC +
+  Seattle (the metros actually in the hot window). Upserting all 10
+  (~3.6M rows) would overflow the 500 MB free tier.
+- **Full chain map:** see `docs/data-maintenance.md` — Drive warehouse →
+  scripts → hot table → packs project → n8n schedules → weekly quality
+  job → live search, plus the owner-steps checklist.
 
 ## Why this makes the website faster
 

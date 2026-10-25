@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Ingest Overture Maps Places slices into CSVs for the Supabase `places` table.
+"""Ingest Overture Maps Places slices into warehouse CSVs.
 
 Overture data is CDLA-Permissive-2.0 / Apache-2.0: storing and
 redistributing is allowed (unlike places APIs whose terms forbid keeping
-their data). Run monthly to refresh; load the CSVs via the Supabase
-Table Editor import (or any bulk loader) into public.places.
+their data). This script is the ONE-OFF warehouse producer: it writes
+data/places-<cc>.csv for the Google Drive "LeadsForceGen Data" folder.
+
+For the LIVE table refresh, use scripts/refresh_places.py instead — it
+runs the same extract and upserts straight into Postgres (no dashboard
+CSV importer). Do not run both for the same region on the same day and
+expect different results; they share the extract rules.
 
 Usage:
   python3 -m venv /tmp/dkenv && /tmp/dkenv/bin/pip install duckdb

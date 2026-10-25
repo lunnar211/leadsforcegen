@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Bulk discovery via Google Programmable Search (official API).
+"""DEPRECATED — DO NOT USE (2026-10-25 audit).
+
+Google Programmable Search "Search the entire web" is OFF for this
+project's engine and, per Google, cannot be turned back on (new engines
+must use "Sites to search"; legacy entire-web ends 2027-01-01). The live
+engine's CSE leg therefore contributes zero leads, and this bulk script
+cannot discover anything either. Kept for reference only — do not wire
+it into any workflow. Durable discovery paths are Overture stored packs
+(scripts/ingest_overture_city.py) and the live OSM legs in lib/engine/.
+
+Bulk discovery via Google Programmable Search (official API).
 
 Finds business websites for a niche+city using operator queries
 (inurl:/intitle:) — the compliant form of "dorking": Google API with the

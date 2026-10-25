@@ -32,6 +32,21 @@ CITIES = {  # name -> (lat_min, lat_max, lon_min, lon_max)
     "abu dhabi": (24.25, 24.60, 54.30, 54.65),
     "pokhara": (28.15, 28.28, 83.93, 84.05),
 }
+# The 11 worldwide city packs come from the SINGLE SOURCE OF TRUTH,
+# scripts/ingest_overture_city.py CITIES (centre + radius_km), converted
+# to the lat/lon box order used here. Previously this script kept its own
+# 4-city list, so --city london/toronto/delhi/... failed with "Unknown
+# city" even though the packs exist. If the import ever fails (script run
+# without its sibling), the 4 local cities above still work.
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from ingest_overture_city import CITIES as _PACK_CITIES, box_expr as _box_expr
+    for _slug, (_display, _lat, _lon, _r) in _PACK_CITIES.items():
+        _xmin, _xmax, _ymin, _ymax = _box_expr(_lat, _lon, _r)
+        CITIES.setdefault(_slug, (_ymin, _ymax, _xmin, _xmax))
+    CITIES.setdefault("sao paulo", CITIES["saopaulo"])  # display-name alias
+except Exception:  # noqa: BLE001 — sibling import is a convenience, not a requirement
+    pass
 CATEGORIES = {
     "dentist": ["dental_clinic", "dentist"], "dental clinic": ["dental_clinic", "dentist"],
     "restaurant": ["restaurant"], "cafe": ["cafe", "coffee_shop"],

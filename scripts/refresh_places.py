@@ -10,8 +10,11 @@ Usage:
   DATABASE_URL=postgres://... python3 scripts/refresh_places.py US-METROS
   DATABASE_URL=postgres://... python3 scripts/refresh_places.py CITY-PACKS
 
-US-METROS loads the top-10 US metro bounding boxes (fits the free-tier
-database; full-US needs a bigger plan).
+US-METROS extracts the top-10 US metro bounding boxes to warehouse
+files (data/places-us-<slug>.csv) but upserts ONLY the HOT_METROS subset
+into the free-tier `places` table. Never upsert all 10 blindly: ~3.6M
+rows would blow the 500 MB free tier (only NYC + Seattle live in the hot
+table; the other 8 metros are file-staged warehouse only).
 
 CITY-PACKS extracts the 11 worldwide city packs (same boxes as
 scripts/ingest_overture_city.py) to data/places-city-<slug>.csv — the
@@ -42,23 +45,17 @@ US_METROS = [  # (name, lon_min, lon_max, lat_min, lat_max)
 SOCIAL_HOSTS = ("facebook.com", "instagram.com", "twitter.com", "x.com",
                 "linkedin.com", "tiktok.com", "youtube.com", "wa.me", "whatsapp.com")
 
-# Worldwide city packs — MUST mirror scripts/ingest_overture_city.py CITIES
-# (display, lat, lon, radius_km). The monthly refresh extracts all of them
-# to warehouse files but upserts only HOT_CITIES into the free-tier table.
-CITY_PACKS = {
-    "london": ("London", 51.5074, -0.1278, 30),
-    "toronto": ("Toronto", 43.6532, -79.3832, 30),
-    "mumbai": ("Mumbai", 19.0760, 72.8777, 30),
-    "delhi": ("Delhi", 28.7041, 77.1025, 30),
-    "sydney": ("Sydney", -33.8688, 151.2093, 30),
-    "berlin": ("Berlin", 52.5200, 13.4050, 25),
-    "paris": ("Paris", 48.8566, 2.3522, 25),
-    "tokyo": ("Tokyo", 35.6762, 139.6503, 30),
-    "saopaulo": ("Sao Paulo", -23.5558, -46.6396, 30),
-    "karachi": ("Karachi", 24.8607, 67.0011, 25),
-    "dhaka": ("Dhaka", 23.8103, 90.4125, 25),
-}
+# Worldwide city packs — SINGLE SOURCE OF TRUTH is
+# scripts/ingest_overture_city.py CITIES (display, lat, lon, radius_km).
+# Imported, not copied, so the boxes can never drift apart again. The
+# monthly refresh extracts all of them to warehouse files but upserts
+# only HOT_CITIES into the free-tier table.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ingest_overture_city import CITIES as CITY_PACKS  # noqa: E402
 HOT_CITIES = ["karachi", "dhaka"]  # ~143k rows together; fits free-tier headroom
+# US metros actually promoted to the hot table. The other 8 metros are
+# extracted to warehouse files only (see US-METROS branch in main()).
+HOT_METROS = ["NYC", "Seattle"]
 
 
 def extract(country: str | None, bbox, out_csv: str) -> int:
@@ -233,11 +230,22 @@ def main() -> int:
         else:
             jobs = [(t, None, t)]
         for country, bbox, label in jobs:
-            csv_path = f"/tmp/places-{label.lower()}.csv"
+            # US metros: warehouse file always, hot-table upsert ONLY for
+            # HOT_METROS. Upserting all 10 would overflow the free tier.
+            if t == "US-METROS":
+                os.makedirs("data", exist_ok=True)
+                csv_path = f"data/places-us-{label.lower()}.csv"
+                hot = label in HOT_METROS
+            else:
+                csv_path = f"/tmp/places-{label.lower()}.csv"
+                hot = True
             try:
                 rows = extract(country, bbox, csv_path)
-                n = upsert(csv_path)
-                print(f"{label}: extracted={rows} upserted={n}", flush=True)
+                if hot:
+                    n = upsert(csv_path)
+                    print(f"{label}: extracted={rows} upserted={n}", flush=True)
+                else:
+                    print(f"{label}: extracted={rows} (warehouse file only)", flush=True)
             except Exception as e:  # noqa: BLE001 — report and continue/fail at end
                 ok = False
                 print(f"{label}: FAILED {type(e).__name__}: {e}", flush=True)
