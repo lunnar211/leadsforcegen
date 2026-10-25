@@ -106,6 +106,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Product</p>
               <ul className="mt-3 space-y-2 text-sm">
                 <li><a className="text-muted hover:text-fg" href="/dashboard">Dashboard</a></li>
+                <li><a className="text-muted hover:text-fg" href="/bulk-email">Bulk Email</a></li>
                 <li><a className="text-muted hover:text-fg" href="/pricing">Pricing</a></li>
                 <li><a className="text-muted hover:text-fg" href="/signup">Start free</a></li>
                 <li><a className="text-muted hover:text-fg" href="/checkout">Go Pro — $19/mo</a></li>
