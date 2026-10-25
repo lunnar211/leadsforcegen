@@ -47,11 +47,12 @@ SOCIAL_HOSTS = ("facebook.com", "instagram.com", "twitter.com", "x.com",
 
 # Worldwide city packs — SINGLE SOURCE OF TRUTH is
 # scripts/ingest_overture_city.py CITIES (display, lat, lon, radius_km).
-# Imported, not copied, so the boxes can never drift apart again. The
-# monthly refresh extracts all of them to warehouse files but upserts
-# only HOT_CITIES into the free-tier table.
+# Imported, not copied, so the boxes can never drift apart again; the
+# box conversion comes from the same module (box_expr), so the math
+# can't drift either. The monthly refresh extracts all of them to
+# warehouse files but upserts only HOT_CITIES into the free-tier table.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ingest_overture_city import CITIES as CITY_PACKS  # noqa: E402
+from ingest_overture_city import CITIES as CITY_PACKS, box_expr  # noqa: E402
 HOT_CITIES = ["karachi", "dhaka"]  # ~143k rows together; fits free-tier headroom
 # US metros actually promoted to the hot table. The other 8 metros are
 # extracted to warehouse files only (see US-METROS branch in main()).
@@ -206,12 +207,9 @@ def main() -> int:
     ok = True
     for t in targets:
         if t == "CITY-PACKS":
-            import math
             os.makedirs("data", exist_ok=True)
             for slug, (display, lat, lon, r) in CITY_PACKS.items():
-                dlat = r / 111.0
-                dlon = r / (111.0 * max(0.2, abs(math.cos(math.radians(lat)))))
-                bbox = (lon - dlon, lon + dlon, lat - dlat, lat + dlat)
+                bbox = box_expr(lat, lon, r)
                 csv_path = f"data/places-city-{slug}.csv"
                 try:
                     rows = extract(None, bbox, csv_path)

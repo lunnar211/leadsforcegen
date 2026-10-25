@@ -53,8 +53,9 @@ Live search (app/api/ai/leads)            stored rows first, OSM legs fill gaps
   dashboard** — no script or workflow upserts into it yet. The engine
   fan-out (`queryPlaces`, env-gated on `SUPABASE_PACKS_*`) reads it once
   those env vars land in Vercel Production + redeploy.
-- London cannot move into the main hot table: ~725k rows ≈ 474 MB of
-  headroom math leaves ~26 MB free. Packs stay in their own project.
+- London cannot move into the main hot table: the main table already
+  holds ~1,147,811 rows ≈ 474/500 MB, leaving ~26 MB headroom, so
+  London's ~725k rows cannot fit. Packs stay in their own project.
 
 ### Nightly + weekly jobs (n8n, on the n8n host)
 
@@ -66,7 +67,7 @@ Live search (app/api/ai/leads)            stored rows first, OSM legs fill gaps
 | Refresh city packs | 6th, 05:30 | `refresh_places.py CITY-PACKS` | 11 packs → files, 2 upserted |
 | Weekly data quality | Sun, 02:00 | `verify_places.py --limit 5000` | Reachability, MX, phone shape, name sanity, dedupe, Groq review |
 | Nightly email enrichment | Daily, 02:00 | `enrich_emails.py 300` | Fills emails from businesses' OWN pages |
-| Search cache warmer | Daily, 03:30 | `GET /api/internal/warm` | Pre-runs common searches into the 6h cache |
+| Search cache warmer | Daily, 03:30 | `POST /api/internal/warm` | Pre-runs common searches into the 6h cache |
 | Leads generation (webhook) | On request | `generate_leads.py` | DB/CSV → Excel + CSV in `out/` + Telegram report |
 
 All workflows live in `n8n/`; per-workflow setup is in `n8n/README.md`.
@@ -130,14 +131,17 @@ derived from the packs + its 4 local cities).
    checks still run).
 5. **Cache warmer secret**: set `WARM_SECRET` in the n8n environment,
    matching the website's Vercel env var.
-6. **Packs project env**: set `SUPABASE_PACKS_URL`,
-   `SUPABASE_PACKS_ANON_KEY`, `SUPABASE_PACKS_SERVICE_ROLE_KEY` in
-   Vercel Production (from the LeadForge-Packs project's API Keys page),
-   then redeploy — this wakes the engine fan-out for London/Toronto.
+6. **Packs project env**: set `SUPABASE_PACKS_URL` and
+   `SUPABASE_PACKS_SERVICE_ROLE_KEY` in Vercel Production (from the
+   LeadForge-Packs project's API Keys page), then redeploy — this wakes
+   the engine fan-out for London/Toronto. (The engine reads only these
+   two; no anon key is used.)
 7. **Packs CSV import** (until automated): import
-   `data/places-city-london-part-*.csv` and
-   `data/places-city-toronto.csv` into the packs project via the
-   Supabase dashboard, and SQL-verify the row counts afterwards.
+   `data/places-city-london.csv` and
+   `data/places-city-toronto.csv` (the final concatenated files —
+   per-part pieces live under `data/parts/` only during an extract)
+   into the packs project via the Supabase dashboard, and SQL-verify
+   the row counts afterwards.
 8. **After any refresh**: copy new warehouse files from the n8n host
    into the Drive "LeadsForceGen Data" folder (no auto-upload exists).
 
@@ -152,3 +156,29 @@ derived from the packs + its 4 local cities).
 - Runtime checks: `refresh_places.CITY_PACKS` imports from
   `ingest_overture_city` correctly; `generate_leads --city london` and
   `--city "sao paulo"` now resolve boxes; `dubai` box unchanged.
+
+## Re-audit (2026-10-25, n8n + scripts scope)
+
+- All 9 workflow JSONs parse; all 7 schedule expressions match the
+  table above (AE 5th 05:00, NP 5th 05:30, US 6th 05:00, city-packs
+  6th 05:30, quality Sun 02:00, enrichment daily 02:00, warmer daily
+  03:30). The superseded combined workflow is untouched and still
+  name-marked SUPERSEDED.
+- HOT guards re-verified: the only two `upsert()` call sites are
+  guarded (`slug in HOT_CITIES` for packs, `label in HOT_METROS` for
+  US metros); no path upserts all 10 metros or all 11 packs.
+- Webhook Sanitize node re-verified: webhook → Sanitize → Execute
+  only, charset letters/digits/spaces/hyphens/underscores, max 50
+  chars, limit clamped 1–5000, no raw webhook body reaches the shell.
+- `refresh_places.py` now uses `box_expr` from
+  `ingest_overture_city.py` (its inline conversion, byte-identical
+  output verified for Karachi, is removed) — one box source and one
+  conversion, no drift surface left.
+- Doc fixes in this pass: warmer is POST (route is POST-only),
+  packs import paths are the final CSVs, packs env list drops the
+  unread anon key, headroom sentence states the table size
+  (~1,147,811 rows ≈ 474/500 MB) instead of attributing it to London.
+- `scripts/discover_cse.py` (DEPRECATED) and
+  `n8n/lead-db-monthly-refresh.json` (SUPERSEDED) kept, not deleted
+  or revived; the untracked `scripts/ingest_overture_city_per_part.py`
+  (SUPERSEDED) left uncommitted.
