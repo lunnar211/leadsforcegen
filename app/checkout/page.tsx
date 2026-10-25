@@ -5,7 +5,7 @@ import ManualPayment from "@/components/ManualPayment";
 
 declare global { interface Window { Razorpay?: new (opts: Record<string, unknown>) => { open: () => void } } }
 
-type Methods = { lemon: boolean; paddle: boolean; razorpay: boolean; stripe: boolean; manual: boolean; country: string | null };
+type Methods = { lemon: boolean; paddle: boolean; binance: boolean; razorpay: boolean; stripe: boolean; manual: boolean; country: string | null };
 type Region = "NP" | "INTL";
 
 export default function Checkout() {
@@ -19,17 +19,21 @@ export default function Checkout() {
   // pays by card (USD). Auto-detected from the visitor's country, and
   // the visitor can switch it — each region leads with ITS method.
   const [region, setRegion] = useState<Region>("INTL");
+  // True when Binance redirected back after payment (?binance_return=1),
+  // read client-side only to avoid a hydration mismatch.
+  const [binanceReturn, setBinanceReturn] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    try { setBinanceReturn(new URLSearchParams(window.location.search).get("binance_return") === "1"); } catch { /* ignore */ }
     fetch("/api/payments/methods")
       .then((r) => r.json())
       .then((d) => {
         if (!alive) return;
-        setMethods({ lemon: !!d.lemon, paddle: !!d.paddle, razorpay: !!d.razorpay, stripe: !!d.stripe, manual: !!d.manual, country: d.country || null });
+        setMethods({ lemon: !!d.lemon, paddle: !!d.paddle, binance: !!d.binance, razorpay: !!d.razorpay, stripe: !!d.stripe, manual: !!d.manual, country: d.country || null });
         setRegion(d.country === "NP" ? "NP" : "INTL");
       })
-      .catch(() => { if (alive) setMethods({ lemon: false, paddle: false, razorpay: false, stripe: false, manual: false, country: null }); });
+      .catch(() => { if (alive) setMethods({ lemon: false, paddle: false, binance: false, razorpay: false, stripe: false, manual: false, country: null }); });
     return () => { alive = false; };
   }, []);
 
@@ -64,6 +68,51 @@ export default function Checkout() {
       if (res.ok && d.data?.url) { window.location.href = d.data.url; return; }
       setMsg(res.status === 401 ? (d.error || "Sign in first, then try again.") : "Paddle checkout is not available right now. Please try again shortly.");
     } catch { setMsg("Something went wrong starting checkout. Please try again."); }
+    finally { setBusy(false); }
+  }
+
+  async function payBinance() {
+    setBusy(true); setMsg("");
+    try {
+      const { supabase } = await import("@/lib/supabaseClient");
+      const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+      const token = data.session?.access_token;
+      const res = await fetch("/api/payments/binance/checkout", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.data?.checkoutUrl) {
+        // Remember the order so the return page can verify it.
+        try {
+          sessionStorage.setItem("lfg-binance-order", JSON.stringify({ merchantTradeNo: d.data.merchantTradeNo, prepayId: d.data.prepayId || "" }));
+        } catch { /* storage unavailable — verify button just won't appear */ }
+        window.location.href = d.data.checkoutUrl;
+        return;
+      }
+      setMsg(res.status === 401 ? (d.error || "Sign in first, then try again.") : "Binance Pay checkout is not available right now. Please try again shortly.");
+    } catch { setMsg("Something went wrong starting checkout. Please try again."); }
+    finally { setBusy(false); }
+  }
+
+  async function verifyBinance() {
+    setBusy(true); setMsg("");
+    try {
+      let stored: { merchantTradeNo?: string; prepayId?: string } = {};
+      try { stored = JSON.parse(sessionStorage.getItem("lfg-binance-order") || "{}"); } catch { stored = {}; }
+      if (!stored.merchantTradeNo) { setMsg("No Binance order found in this browser. Start a Binance checkout first."); return; }
+      const { supabase } = await import("@/lib/supabaseClient");
+      const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+      const token = data.session?.access_token;
+      const res = await fetch("/api/payments/binance/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(stored),
+      });
+      const d = await res.json().catch(() => ({}));
+      setMsg(res.ok ? (d.message || "Pro activated.") : `Verification failed: ${d.error || "unknown"}`);
+      if (res.ok) { try { sessionStorage.removeItem("lfg-binance-order"); } catch { /* ignore */ } }
+    } catch { setMsg("Something went wrong verifying. Please try again."); }
     finally { setBusy(false); }
   }
 
@@ -118,9 +167,13 @@ export default function Checkout() {
           {methods === null && <p className="text-sm text-muted" role="status">Loading payment options…</p>}
           {methods?.lemon && <button disabled={busy} onClick={payLemon} className="btn-cta btn-block">Pay worldwide — Card / PayPal / Apple Pay</button>}
           {methods?.paddle && <button disabled={busy} onClick={payPaddle} className="btn-ghost btn-block">Pay with Paddle — cards worldwide</button>}
+          {methods?.binance && <button disabled={busy} onClick={payBinance} className="btn-ghost btn-block">Pay with Binance — 19 USDT (crypto)</button>}
+          {binanceReturn && (
+            <button disabled={busy} onClick={verifyBinance} className="btn-cta btn-block">I&rsquo;ve paid in Binance — verify &amp; activate Pro</button>
+          )}
           {methods?.razorpay && <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>}
           {methods?.stripe && <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>}
-          {methods && !methods.lemon && !methods.paddle && !methods.razorpay && !methods.stripe && (
+          {methods && !methods.lemon && !methods.paddle && !methods.binance && !methods.razorpay && !methods.stripe && (
             <p className="text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="status">
               Online card payments are opening very shortly — we are connecting them now. Please check back soon.
             </p>

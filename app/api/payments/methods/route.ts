@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { gatewayConfigured, lemonConfigured, paddleConfigured } from "@/lib/payments/plans";
+import { binanceConfigured, gatewayConfigured, lemonConfigured, paddleConfigured } from "@/lib/payments/plans";
 
 // Which payment options are actually connected on the server. Returns
 // booleans ONLY — never key values — so the checkout page can show just
@@ -14,6 +14,7 @@ export async function GET(req: Request) {
   return Response.json({
     lemon: lemonConfigured(),
     paddle: paddleConfigured(),
+    binance: binanceConfigured(),
     razorpay: gatewayConfigured("razorpay"),
     stripe: gatewayConfigured("stripe"),
     manual: Boolean(process.env.MANUAL_PAYMENT_INSTRUCTIONS),

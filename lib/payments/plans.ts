@@ -42,6 +42,14 @@ export function lemonConfigured(): boolean {
 export function paddleConfigured(): boolean {
   return Boolean(process.env.PADDLE_API_KEY && process.env.PADDLE_PRICE_ID_PRO);
 }
+
+// Binance Pay (worldwide, crypto — 19 USDT for Pro, fixed in
+// lib/payments/binance.ts). Keys come from the Binance merchant portal
+// (Developers → API). Needs supabase/binance-pay.sql applied so the
+// 'binance' gateway value is accepted by the payments table.
+export function binanceConfigured(): boolean {
+  return Boolean(process.env.BINANCE_PAY_API_KEY && process.env.BINANCE_PAY_SECRET_KEY);
+}
 export function paddleApiBase(): string {
   return process.env.PADDLE_ENV === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
 }
