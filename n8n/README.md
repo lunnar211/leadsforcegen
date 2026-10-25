@@ -1,7 +1,10 @@
 # LeadsForceGen — n8n automations
 
-Two import-ready workflows that keep the lead database fresh and make
-website searches return complete leads instantly:
+Nine import-ready workflows: four split monthly refreshes, a weekly
+quality job, nightly email enrichment, a search-cache warmer, and the
+leads-generation webhook — plus one superseded combined refresh (import
+one refresh set, not both). Files are the warehouse, free Supabase is
+the hot window; the canonical ops doc is `docs/data-maintenance.md`.
 
 | Workflow file | Schedule | What it does |
 |---|---|---|
@@ -15,7 +18,11 @@ website searches return complete leads instantly:
 | `leads-generation.json` | On request (webhook) | The bridge: POST a niche + city → `scripts/generate_leads.py` pulls from the database (or the local dataset files) → writes ready-to-send Excel + CSV lead files to `out/` → Telegram report + webhook reply. |
 | `nightly-email-enrichment.json` | Daily, 02:00 | Visits the OWN websites of businesses that have a website but no email, extracts emails they publish (mailto / schema.org JSON-LD), and fills them in (`scripts/enrich_emails.py`) — so searches come back with emails already attached, no live crawling wait. Then a Telegram report. |
 
-Both write directly to Postgres. No dashboard CSV importer, ever again.
+The refresh, quality, and enrichment workflows write to Postgres (the
+hot window); the leads-generation webhook writes Excel + CSV files to
+`out/`; the warmer only pre-runs searches into cache. The packs project
+is the exception — its rows still arrive by manual dashboard CSV import.
+See `docs/data-maintenance.md`, the canonical ops doc.
 
 ## Setup (one time, ~10 minutes)
 

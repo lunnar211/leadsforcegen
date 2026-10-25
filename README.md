@@ -4,7 +4,7 @@ AI-powered lead generation SaaS. Search company-level prospects for any niche, s
 
 - **Free plan:** 10 leads/day, AI scoring, search history (no CSV export)
 - **Pro plan:** unlimited leads, CSV export, full AI outreach — $19/mo (₹1,499 via Razorpay)
-- **Stack (all free tiers):** Next.js (App Router, TypeScript) + Tailwind, Supabase (auth + database), Groq AI, Vercel hosting, Razorpay / Stripe payments
+- **Stack (all free tiers):** Next.js (App Router, TypeScript) + Tailwind, Supabase (auth + database), Groq AI, Vercel hosting, payments via Razorpay / Stripe / Lemon Squeezy / Paddle / Binance Pay / manual (eSewa, Khalti, bank)
 - **Admin panel** at `/admin` for the owner: users, plans, activity, subscriptions
 
 > Leads are company/business prospects suggested by AI. They must be **verified before outreach**. LeadsForceGen never invents personal phone numbers or personal email addresses.
@@ -38,7 +38,7 @@ Set these by **name** in `.env.local` locally and in the Vercel dashboard when d
 
 ## Payments — how they work (secure + duplicate-proof)
 
-Gateways are optional and env-configured; either or both can be enabled.
+Gateways are optional and env-configured; each is enabled only when its env vars are set. The supported set is the `payments_gateway_check` list in `supabase/schema.sql` (razorpay, stripe, manual, lemonsqueezy, paddle, binance); the steps below detail the Razorpay/Stripe paths.
 
 1. **Server-side prices only.** Prices live in the server plan map (`lib/payments/plans.ts`) and, for Stripe, in the Stripe Price (`STRIPE_PRICE_ID_PRO`). The browser never sends an amount that is trusted.
 2. **Create:** the Pro button on `/checkout` calls `POST /api/payments/create-order`, which creates a Razorpay order or a Stripe Checkout session server-side for the server-side amount.
