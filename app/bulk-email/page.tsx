@@ -85,6 +85,8 @@ export default function BulkEmail() {
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [detail, setDetail] = useState<{ campaign: Campaign; recipients: RecipientRow[] } | null>(null);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const [uploadErr, setUploadErr] = useState("");
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const headers = useCallback(async (): Promise<Record<string, string>> => {
@@ -147,6 +149,69 @@ export default function BulkEmail() {
     const reader = new FileReader();
     reader.onload = () => setPaste((p) => (p ? p + "\n" : "") + String(reader.result || ""));
     reader.readAsText(f);
+  }
+
+  // JSON recipient upload. Accepted shapes, all collected into plain
+  // email strings and appended to the paste box, so they flow through the
+  // EXACT same downstream pipeline as CSV/pasted addresses (email-only
+  // filter, dedupe, MX verify, caps, blocklist, footers, batching):
+  //   ["a@example.com", "b@example.com"]
+  //   [{ "email": "a@example.com", ... }, ...]
+  //   { "emails": [ ...either of the above... ] }
+  // Anything else gets a plain error and nothing is appended.
+  function collectJsonEmails(value: unknown): string[] {
+    const fromArray = (arr: unknown[]): string[] => {
+      const out: string[] = [];
+      for (const item of arr) {
+        if (typeof item === "string") out.push(item);
+        else if (item && typeof item === "object" && typeof (item as { email?: unknown }).email === "string") {
+          out.push((item as { email: string }).email);
+        }
+      }
+      return out;
+    };
+    if (Array.isArray(value)) return fromArray(value);
+    if (value && typeof value === "object" && Array.isArray((value as { emails?: unknown }).emails)) {
+      return fromArray((value as { emails: unknown[] }).emails);
+    }
+    return [];
+  }
+
+  function isJsonShape(value: unknown): boolean {
+    if (Array.isArray(value)) return true;
+    return !!(value && typeof value === "object" && Array.isArray((value as { emails?: unknown }).emails));
+  }
+
+  async function onJsonFile(f: File | undefined) {
+    if (!f) return;
+    setUploadMsg("");
+    setUploadErr("");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await f.text());
+    } catch {
+      setUploadErr("Could not read that file as JSON. Check the file and try again.");
+      return;
+    }
+    if (!isJsonShape(parsed)) {
+      setUploadErr("That JSON file doesn't contain an emails list. Use an array of email addresses, an array of objects with an email field, or an object with an emails array.");
+      return;
+    }
+    const emails = collectJsonEmails(parsed);
+    if (!emails.length) {
+      setUploadErr("No email addresses found in that JSON file.");
+      return;
+    }
+    setPaste((p) => (p ? p + "\n" : "") + emails.join("\n"));
+    setUploadMsg(`Added ${emails.length} email ${emails.length === 1 ? "address" : "addresses"} from ${f.name} — run Filter & verify to check them.`);
+  }
+
+  function onListFile(f: File | undefined) {
+    if (!f) return;
+    setUploadMsg("");
+    setUploadErr("");
+    if (/\.json$/i.test(f.name)) void onJsonFile(f);
+    else onCsvFile(f);
   }
 
   async function verify() {
@@ -344,8 +409,10 @@ export default function BulkEmail() {
           <textarea id="be-paste" className="input min-h-[120px]" placeholder={"anna@example.com, ben@example.com\n…or paste a whole list"} value={paste} onChange={(e) => setPaste(e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor="be-csv">Or upload a CSV file <span className="font-normal text-muted">(Excel: save as CSV first)</span></label>
-          <input id="be-csv" ref={fileRef} className="input" type="file" accept=".csv,.txt" onChange={(e) => onCsvFile(e.target.files?.[0])} />
+          <label className="label" htmlFor="be-csv">Or upload a CSV or JSON file <span className="font-normal text-muted">(Excel: save as CSV first; JSON: an array of emails, an array of objects with an email field, or an object with an emails array)</span></label>
+          <input id="be-csv" ref={fileRef} className="input" type="file" accept=".csv,.txt,.json" onChange={(e) => onListFile(e.target.files?.[0])} />
+          {uploadErr && <p className="field-error">{uploadErr}</p>}
+          {uploadMsg && <p className="mt-1 text-xs text-muted">{uploadMsg}</p>}
         </div>
         <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => void verify()}>Filter &amp; verify</button>
         {extracted.length > 0 && (
