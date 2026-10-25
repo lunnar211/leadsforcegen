@@ -15,8 +15,15 @@ import type { Lead } from "@/lib/types";
 
 export type BlockEntry = { domain: string | null; email: string | null };
 
+// 2026-10-25 fix (hack-audit finding, low severity): this list used to
+// be cached per lambda instance for 5 minutes, so a business that had
+// just unsubscribed kept appearing in searches for up to 5 minutes —
+// the unsubscribe promise ("removed from all future results") was
+// only eventually true. The list is small (tens of rows in practice),
+// so every search now fetches it fresh; the last-known list is kept
+// ONLY as a fallback when the fetch itself fails, never served while
+// a fresh fetch succeeds.
 let cached: { list: BlockEntry[]; at: number } | null = null;
-const TTL_MS = 5 * 60_000;
 
 export function domainOf(raw: string): string {
   return (raw || "")
@@ -36,7 +43,6 @@ function emailDomain(email: string): string {
 
 export async function getBlocklist(): Promise<BlockEntry[]> {
   const now = Date.now();
-  if (cached && now - cached.at < TTL_MS) return cached.list;
   const admin = serviceClient();
   if (!admin) return cached?.list || [];
   try {
