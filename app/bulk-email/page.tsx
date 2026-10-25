@@ -49,6 +49,17 @@ function toHtml(text: string): string {
 
 export default function BulkEmail() {
   const [plan, setPlan] = useState<string | null>(null);
+  // Fail closed: the Pro panel must never render on an unknown plan.
+  // Before this, a signed-out visitor (whose /api/usage call 401s)
+  // kept plan === null forever and saw the full compose UI — the gate
+  // below only hid it once a plan actually loaded. Now the panel
+  // renders only after load() confirms plan === "pro"; anything else
+  // (free, signed-out, or a failed plan fetch) gets the upsell.
+  // Server-side gating is not possible with the current Bearer-token
+  // (localStorage) auth, so the API routes remain the enforcement
+  // point — this gate only stops the panel itself leaking to non-Pro
+  // eyes. Data can never leak: every email route 401s/403s.
+  const [planLoaded, setPlanLoaded] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   // SMTP (Gmail) is the default: it needs no API key — just a Gmail
   // address + app password. Brevo/Resend stay as alternatives below.
@@ -113,6 +124,7 @@ export default function BulkEmail() {
     if (p.ok && p.data) setPlatformAvailable(!!p.data.available);
     const c = await fetch("/api/email/campaigns", { headers: h }).then((r) => r.json()).catch(() => ({}));
     if (c.ok) setCampaigns(c.data as Campaign[]);
+    setPlanLoaded(true);
   }, [headers]);
 
   useEffect(() => { void load(); }, [load]);
@@ -293,7 +305,18 @@ export default function BulkEmail() {
     if (r.ok) setDetail(r.data);
   }
 
-  if (plan !== null && plan !== "pro") {
+  if (!planLoaded) {
+    return (
+      <main className="mx-auto w-full max-w-[900px] px-4 py-6 sm:py-10">
+        <h1 className="text-3xl font-bold">Bulk Email</h1>
+        <section className="card mt-6 space-y-4 p-4 sm:p-5">
+          <p className="text-muted">Loading…</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (plan !== "pro") {
     return (
       <main className="mx-auto w-full max-w-[900px] px-4 py-6 sm:py-10">
         <h1 className="text-3xl font-bold">Bulk Email</h1>
