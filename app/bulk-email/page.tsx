@@ -363,7 +363,7 @@ export default function BulkEmail() {
         </div>
         {prov === "platform" ? (
           <div className="space-y-4">
-            <p className="text-sm text-muted">Mail sent with this option comes from the LeadsForceGen platform address — not from your personal address. No setup on your side: the platform address is verified by the site owner, and every mail still carries the unsubscribe footer. Replies go to your Reply-To address below, or to the platform address if you leave it blank.</p>
+            <p className="text-sm text-muted">Mail sent with this option comes from the LeadsForceGen platform address — not from your personal address. No setup on your side: the platform address is verified by the site owner, and every mail still carries the unsubscribe footer. Replies go to your Reply-To address below, or to the platform address if you leave it blank. It needs no Gmail password or app password.</p>
             <div><label className="label" htmlFor="be-replyto">Reply-To email <span className="font-normal text-muted">(optional)</span></label><input id="be-replyto" className="input" placeholder="you@example.com" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} /></div>
           </div>
         ) : prov === "smtp" ? (
@@ -372,7 +372,17 @@ export default function BulkEmail() {
               <div><label className="label" htmlFor="be-user">Gmail address</label><input id="be-user" className="input" placeholder="you@gmail.com" value={smtp.user} onChange={(e) => setSmtp({ ...smtp, user: e.target.value })} /></div>
               <div><label className="label" htmlFor="be-pass">Gmail app password</label><input id="be-pass" className="input" type="password" placeholder="16-character app password" value={smtp.pass} onChange={(e) => setSmtp({ ...smtp, pass: e.target.value })} autoComplete="off" /></div>
             </div>
-            <p className="text-sm text-muted">Get an app password: Google Account → Security → turn on 2-Step Verification → App passwords → generate one for Mail → paste it here. Never paste your normal Gmail password — Google blocks that, and an app password can be revoked any time. <a className="underline" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Open Google App passwords</a>.</p>
+            <div className="rounded-lg border border-border p-3 text-sm">
+              <p className="font-medium">Gmail 2-Step Verification — read this first</p>
+              <ol className="mt-2 list-decimal space-y-1 pl-5">
+                <li>SMTP cannot ask for your 2FA code, so Gmail uses app passwords instead — that is why your normal Gmail password does not work here.</li>
+                <li>Turn ON 2-Step Verification first: Google Account → Security → 2-Step Verification. App passwords do not even appear until 2-step is on.</li>
+                <li>Then Google Account → App passwords → generate one for Mail (16 characters).</li>
+                <li>Paste that 16-character code into the “Gmail app password” field above — never your normal Gmail password, which Google blocks for SMTP.</li>
+                <li>If sending fails with an auth or password error, generate a fresh app password in Google and re-save it here. Revoking an app password in Google stops sending until a new one is saved.</li>
+              </ol>
+              <p className="mt-2"><a className="underline" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Open Google App passwords</a></p>
+            </div>
             <details>
               <summary className="cursor-pointer text-sm font-medium">Advanced: custom mail server</summary>
               <div className="mt-3 grid gap-4 sm:grid-cols-2">
