@@ -34,16 +34,14 @@ export async function GET() {
     .order("created_at", { ascending: true })
     .limit(50);
   if (error) return NextResponse.json({ ok: false, error: "Could not load the queue." }, { status: 502 });
-  const rows = await Promise.all(
-    (data || []).map(async (row) => {
-      let proofUrl: string | null = null;
-      if (row.proof_path) {
-        const { data: signed } = await admin.storage.from("payment-proofs").createSignedUrl(row.proof_path, 600);
-        proofUrl = signed?.signedUrl || null;
-      }
-      return { ...row, proofUrl };
-    }),
-  );
+  // Proof previews go through the hardened proxy (/api/admin/proof),
+  // which re-encodes the image and serves it with nosniff + sandbox
+  // headers. No direct storage signed URL is minted anymore — the
+  // admin's browser must never receive the original uploaded bytes.
+  const rows = (data || []).map((row) => ({
+    ...row,
+    proofUrl: row.proof_path ? `/api/admin/proof?id=${row.id}` : null,
+  }));
   return NextResponse.json({ ok: true, data: rows });
 }
 

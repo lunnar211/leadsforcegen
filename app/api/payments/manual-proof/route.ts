@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createHash } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { MANUAL_METHODS, MANUAL_PRICES_NPR } from "@/lib/payments/plans";
+import { reencodeProof } from "@/lib/proof-image";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { sendTelegram } from "@/lib/telegram";
 
@@ -40,7 +41,9 @@ function sniffImage(bytes: Uint8Array, ext: string): boolean {
   return false;
 }
 
-const VERIFIED_TYPE: Record<string, string> = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" };
+// Stored proofs are ALWAYS re-encoded JPEG now (see lib/proof-image),
+// so the stored content-type is fixed — never the client-supplied one,
+// and never the original file's type either.
 
 // A buyer submits payment proof for a manual (eSewa/Khalti/bank) payment.
 // The amount comes ONLY from the server price map (months -> NPR). The
@@ -117,18 +120,32 @@ export async function POST(req: Request) {
 
   const admin = adminPre;
   const proofId = `manual_${crypto.randomUUID()}`;
-  const path = `${userData.user.id}/${proofId}.${ext}`;
   const bytes = new Uint8Array(await file.arrayBuffer());
   // Content check before anything is stored (S1).
   if (!sniffImage(bytes, ext)) {
     return NextResponse.json({ ok: false, error: "That file is not a real PNG, JPG, or WebP image." }, { status: 400 });
   }
+  // Malware hardening: decode to pixels and store a brand-new JPEG —
+  // polyglots, EXIF, and appended payloads are destroyed (see
+  // lib/proof-image). Undecodable input is REJECTED here; it is never
+  // stored. The stored path is uuid-based only — the user-supplied
+  // filename is never used — and the extension is always .jpg because
+  // the stored object is always the re-encoded JPEG.
+  let clean: { bytes: Buffer; contentType: "image/jpeg" };
+  try {
+    clean = await reencodeProof(bytes);
+  } catch {
+    return NextResponse.json({ ok: false, error: "That image could not be read. Please upload a clear PNG, JPG, or WebP screenshot." }, { status: 400 });
+  }
+  const path = `${userData.user.id}/${proofId}.jpg`;
   // Duplicate-proof guard (sweep finding P1): the same user re-uploading
   // an identical file while one is pending gets the EXISTING record
-  // back — no second pending row, no second upload. The proof_hash
-  // column arrives with the security-fixes migration; until it runs,
-  // the lookup errors and we proceed exactly as before.
-  const proofHash = createHash("sha256").update(bytes).digest("hex");
+  // back — no second pending row, no second upload. The hash is taken
+  // over the RE-ENCODED bytes, so two uploads that decode to the same
+  // pixels dedupe even if their original containers differed. The
+  // proof_hash column arrives with the security-fixes migration; until
+  // it runs, the lookup errors and we proceed exactly as before.
+  const proofHash = createHash("sha256").update(clean.bytes).digest("hex");
   try {
     const { data: dup } = await admin
       .from("payments")
@@ -144,7 +161,7 @@ export async function POST(req: Request) {
       });
     }
   } catch { /* proof_hash column not migrated yet — no dedupe */ }
-  const { error: upErr } = await admin.storage.from("payment-proofs").upload(path, bytes, { contentType: VERIFIED_TYPE[ext] });
+  const { error: upErr } = await admin.storage.from("payment-proofs").upload(path, clean.bytes, { contentType: clean.contentType });
   if (upErr) {
     return NextResponse.json({ ok: false, error: "Could not store the proof. Please try again." }, { status: 502 });
   }
