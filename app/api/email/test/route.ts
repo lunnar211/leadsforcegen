@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireProUser, loadSettings } from "@/lib/email/guard";
 import { decryptSecret } from "@/lib/email/crypto";
 import { sendOne, type ProviderCreds } from "@/lib/email/providers";
+import { platformSender } from "@/lib/email/platform";
 import { rateLimit } from "@/lib/rate-limit";
 
 // "Send test email to myself": one mail to the user's OWN sender
@@ -21,6 +22,51 @@ export async function POST(req: Request) {
   const settings = await loadSettings(auth.user.id);
   if (!settings) {
     return NextResponse.json({ ok: false, error: "Connect a provider first (Bulk Email → Settings)." }, { status: 400 });
+  }
+  // Platform sender test: From is the owner's verified platform
+  // address, and the test goes to the signed-in user's own account
+  // email (there is no user sender address for platform). Same
+  // Pro gate and 5/hour rate limit as every other test.
+  let testIsPlatform = false;
+  let testReplyTo: string | null = null;
+  try {
+    const marker = JSON.parse(decryptSecret(settings.creds as string)) as Record<string, unknown>;
+    if (marker.platform === true) {
+      testIsPlatform = true;
+      testReplyTo = typeof marker.replyTo === "string" ? marker.replyTo : null;
+    }
+  } catch {
+    // Not platform-marked: the parse below fails closed as before.
+  }
+  if (testIsPlatform) {
+    const plat = platformSender();
+    if (!plat) {
+      return NextResponse.json({ ok: false, error: "Platform sender is not configured on the server." }, { status: 502 });
+    }
+    const to = auth.user.email || "";
+    if (!to) {
+      return NextResponse.json({ ok: false, error: "No account email to send the test to." }, { status: 400 });
+    }
+    const fromName = settings.senderName || "LeadsForceGen";
+    try {
+      await sendOne(
+        { provider: "brevo", apiKey: plat.apiKey },
+        {
+          fromName,
+          fromEmail: plat.fromEmail,
+          replyTo: testReplyTo || plat.fromEmail,
+          to,
+          subject: "LeadsForceGen test email — platform sender works",
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:8px"><p>This is a test email from the LeadsForceGen platform sender.</p><p>Campaign mail with this provider goes out from the platform address, and replies go to your Reply-To address when one is set.</p></div>`,
+          text: `This is a test email from the LeadsForceGen platform sender. Campaign mail with this provider goes out from the platform address.`,
+          attachments: [],
+        },
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message.slice(0, 300) : "Send failed";
+      return NextResponse.json({ ok: false, error: `Test email failed: ${msg}` }, { status: 502 });
+    }
+    return NextResponse.json({ ok: true, data: { to, provider: "platform" } });
   }
   let creds: ProviderCreds;
   try {

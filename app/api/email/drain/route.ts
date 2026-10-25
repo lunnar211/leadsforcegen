@@ -119,6 +119,22 @@ export async function GET(req: Request) {
       results.push({ campaignId: camp.id, error: "no provider settings (queued rows kept)" });
       continue;
     }
+    // Platform sender never auto-drains: such campaigns cannot be
+    // created (the send route refuses auto-drain for platform), so this
+    // is defense-in-depth. Skip with a clear reason and keep the queued
+    // rows for manual Resume — never let the platform marker fall
+    // through to the SMTP credential shape below.
+    let drainIsPlatform = false;
+    try {
+      const marker = JSON.parse(decryptSecret(settings.creds as string)) as Record<string, unknown>;
+      drainIsPlatform = marker.platform === true;
+    } catch {
+      // Fall through to decryptCreds, which fails closed per campaign.
+    }
+    if (drainIsPlatform) {
+      results.push({ campaignId: camp.id, skipped: "platform sender does not support auto-drain (use manual Resume)" });
+      continue;
+    }
     let creds: ProviderCreds;
     let bodyHtml: string;
     try {

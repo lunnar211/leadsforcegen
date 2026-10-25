@@ -4,6 +4,7 @@ import { requireProUser, loadSettings } from "@/lib/email/guard";
 import { decryptSecret, encryptSecret, hashToken } from "@/lib/email/crypto";
 import { extractEmails } from "@/lib/email/extract";
 import { buildHtml, rewriteLinks, sendOne, fireWebhook, type Attachment, type ProviderCreds } from "@/lib/email/providers";
+import { platformSender } from "@/lib/email/platform";
 import { getBlocklist, isBlocked } from "@/lib/engine/blocklist";
 
 // Caps that keep a campaign inside one serverless invocation and inside
@@ -18,7 +19,7 @@ const PER_SEND_CAP = 50;
 // it day by day within the provider cap); manual campaigns keep the
 // 50-recipient cap above. 5000 bounds abuse without cutting real lists.
 const MAX_DRAIN_RECIPIENTS = 5000;
-const DAILY_CAPS: Record<string, number> = { brevo: 300, resend: 100, smtp: 500 };
+const DAILY_CAPS: Record<string, number> = { brevo: 300, resend: 100, smtp: 500, platform: 300 };
 const MAX_ATTACH_BYTES = 2 * 1024 * 1024;
 const SEND_DEADLINE_MS = 50_000;
 
@@ -33,23 +34,52 @@ export async function POST(req: Request) {
   if (!settings) {
     return NextResponse.json({ ok: false, error: "Connect a provider first (Bulk Email → Settings)." }, { status: 400 });
   }
-  let creds: ProviderCreds;
+  // Platform sender: the blob marker decides. Transport is Brevo with
+  // the OWNER's env key, From is the owner's verified platform address
+  // — never a user-supplied From. Reply-To comes from the saved blob
+  // (user-supplied, validated at save time) or the platform address.
+  let isPlatform = false;
+  let platformReplyTo: string | null = null;
   try {
-    const raw = JSON.parse(decryptSecret(settings.creds as string)) as Record<string, unknown>;
-    if (settings.provider === "brevo" || settings.provider === "resend") {
-      creds = { provider: settings.provider, apiKey: String(raw.apiKey || "") };
-    } else {
-      creds = {
-        provider: "smtp",
-        host: String(raw.host || ""),
-        port: Number(raw.port || 587),
-        secure: Boolean(raw.secure),
-        user: String(raw.user || ""),
-        pass: String(raw.pass || ""),
-      };
+    const marker = JSON.parse(decryptSecret(settings.creds as string)) as Record<string, unknown>;
+    if (marker.platform === true) {
+      isPlatform = true;
+      platformReplyTo = typeof marker.replyTo === "string" ? marker.replyTo : null;
     }
   } catch {
-    return NextResponse.json({ ok: false, error: "Saved provider credentials could not be read. Re-save them in Settings." }, { status: 502 });
+    // Not platform-marked (or unreadable): the parse below fails closed.
+  }
+  let creds: ProviderCreds;
+  let fromName = settings.senderName;
+  let fromEmail = settings.senderEmail;
+  let replyTo: string | undefined;
+  if (isPlatform) {
+    const plat = platformSender();
+    if (!plat) {
+      return NextResponse.json({ ok: false, error: "Platform sender is not configured on the server." }, { status: 502 });
+    }
+    creds = { provider: "brevo", apiKey: plat.apiKey };
+    fromEmail = plat.fromEmail;
+    if (!fromName) fromName = "LeadsForceGen";
+    replyTo = platformReplyTo || plat.fromEmail;
+  } else {
+    try {
+      const raw = JSON.parse(decryptSecret(settings.creds as string)) as Record<string, unknown>;
+      if (settings.provider === "brevo" || settings.provider === "resend") {
+        creds = { provider: settings.provider, apiKey: String(raw.apiKey || "") };
+      } else {
+        creds = {
+          provider: "smtp",
+          host: String(raw.host || ""),
+          port: Number(raw.port || 587),
+          secure: Boolean(raw.secure),
+          user: String(raw.user || ""),
+          pass: String(raw.pass || ""),
+        };
+      }
+    } catch {
+      return NextResponse.json({ ok: false, error: "Saved provider credentials could not be read. Re-save them in Settings." }, { status: 502 });
+    }
   }
 
   const body = await req.json().catch(() => ({}));
@@ -85,6 +115,12 @@ export async function POST(req: Request) {
     // Auto-drain is opt-in per campaign (default off) and text-only:
     // attachments are deliberately never stored for draining.
     const autoDrain = body.autoDrain === true;
+    if (autoDrain && isPlatform) {
+      // Platform sender never auto-drains: the drain cron has no
+      // per-campaign Reply-To to use, and queued platform mail continues
+      // with manual Resume instead. Refuse loudly, never silently.
+      return NextResponse.json({ ok: false, error: "Auto-drain is not available with the platform sender — use manual Resume for queued mail." }, { status: 400 });
+    }
     const rawList = Array.isArray(body.recipients) ? body.recipients.join("\n") : String(body.recipients || "");
     let emails = extractEmails(rawList).slice(0, autoDrain ? MAX_DRAIN_RECIPIENTS : PER_SEND_CAP);
     if (!emails.length) {
@@ -178,7 +214,7 @@ export async function POST(req: Request) {
     .eq("user_id", auth.user.id)
     .eq("status", "sent")
     .gte("created_at", today);
-  const budget = Math.max(0, (DAILY_CAPS[settings.provider] ?? 300) - (sentToday || 0));
+  const budget = Math.max(0, (DAILY_CAPS[isPlatform ? "platform" : settings.provider] ?? 300) - (sentToday || 0));
   // Attachments come from the request on both paths (new + resume).
   const attachments: Attachment[] = Array.isArray(body.attachments) ? (body.attachments as Attachment[]).slice(0, 3) : [];
   {
@@ -208,11 +244,12 @@ export async function POST(req: Request) {
   let sent = 0;
   let failed = 0;
   const sendOneTo = async (r: { id: string; email: string; token: string }) => {
-    const html = rewriteLinks(buildHtml({ template, bodyHtml, token: r.token, senderName: settings.senderName }), r.token);
+    const html = rewriteLinks(buildHtml({ template, bodyHtml, token: r.token, senderName: fromName }), r.token);
     try {
       await sendOne(creds, {
-        fromName: settings.senderName,
-        fromEmail: settings.senderEmail,
+        fromName,
+        fromEmail,
+        replyTo,
         to: r.email,
         subject,
         html,

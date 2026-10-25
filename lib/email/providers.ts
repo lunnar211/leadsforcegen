@@ -18,6 +18,10 @@ export type Attachment = { name: string; content: string; type: string };
 export type Outgoing = {
   fromName: string;
   fromEmail: string;
+  // Openly declared, user-supplied reply address (platform sender only).
+  // Reply-To is NOT a forged From: the From address is always exactly
+  // the authenticated sender, and replies simply go elsewhere.
+  replyTo?: string;
   to: string;
   subject: string;
   html: string;
@@ -94,6 +98,7 @@ export async function sendOne(creds: ProviderCreds, msg: Outgoing): Promise<void
       { "api-key": creds.apiKey },
       {
         sender: { name: msg.fromName, email: msg.fromEmail },
+        ...(msg.replyTo ? { replyTo: { email: msg.replyTo, name: msg.fromName } } : {}),
         to: [{ email: msg.to }],
         subject: msg.subject,
         htmlContent: msg.html,

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
-type Settings = { provider: string; senderName: string; senderEmail: string; webhookUrl: string | null; keySet: boolean };
+type Settings = { provider: string; senderName: string; senderEmail: string; webhookUrl: string | null; keySet: boolean; replyTo: string | null };
 type Campaign = { id: string; subject: string; template: string; status: string; total: number; sent: number; failed: number; opened: number; clicked: number; unsubscribed: number; created_at: string; auto_drain?: boolean };
 type RecipientRow = { email: string; status: string; opened_at: string | null; clicked_at: string | null; unsubscribed_at: string | null; error: string | null };
 
@@ -57,6 +57,11 @@ export default function BulkEmail() {
   const [smtp, setSmtp] = useState({ host: "smtp.gmail.com", port: "587", user: "", pass: "" });
   const [senderName, setSenderName] = useState("");
   const [senderEmail, setSenderEmail] = useState("");
+  // Platform sender is env-gated server-side: the option only renders
+  // when /api/email/platform says the owner's address + key are set.
+  // The address and key themselves never reach the browser.
+  const [platformAvailable, setPlatformAvailable] = useState(false);
+  const [replyTo, setReplyTo] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [saveMsg, setSaveMsg] = useState("");
 
@@ -99,8 +104,11 @@ export default function BulkEmail() {
       setProv(s.data.provider);
       setSenderName(s.data.senderName);
       setSenderEmail(s.data.senderEmail);
+      setReplyTo(s.data.replyTo || "");
       setWebhookUrl(s.data.webhookUrl || "");
     }
+    const p = await fetch("/api/email/platform", { headers: h }).then((r) => r.json()).catch(() => ({}));
+    if (p.ok && p.data) setPlatformAvailable(!!p.data.available);
     const c = await fetch("/api/email/campaigns", { headers: h }).then((r) => r.json()).catch(() => ({}));
     if (c.ok) setCampaigns(c.data as Campaign[]);
   }, [headers]);
@@ -111,10 +119,11 @@ export default function BulkEmail() {
     setSaveMsg("");
     const h = await headers();
     const payload: Record<string, unknown> = { provider: prov, senderName, senderEmail, webhookUrl };
-    if (prov === "smtp") payload.host = smtp.host, payload.port = smtp.port, payload.user = smtp.user, payload.pass = smtp.pass;
+    if (prov === "platform") { payload.senderEmail = ""; payload.replyTo = replyTo; }
+    else if (prov === "smtp") payload.host = smtp.host, payload.port = smtp.port, payload.user = smtp.user, payload.pass = smtp.pass;
     else payload.apiKey = apiKey;
     const r = await fetch("/api/email/settings", { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((x) => x.json()).catch(() => ({}));
-    setSaveMsg(r.ok ? "Settings saved. Your credentials are stored encrypted." : (r.error || "Could not save settings."));
+    setSaveMsg(r.ok ? (prov === "platform" ? "Platform sender saved. No credentials needed on your side." : "Settings saved. Your credentials are stored encrypted.") : (r.error || "Could not save settings."));
     if (r.ok) void load();
   }
 
@@ -245,7 +254,7 @@ export default function BulkEmail() {
     <main className="mx-auto w-full max-w-[900px] px-4 py-6 sm:py-10">
       <h1 className="text-3xl font-bold">Bulk Email</h1>
       <p className="mt-1 text-sm text-muted">Send only to people who gave you permission. Every mail carries an unsubscribe link, and unsubscribed addresses are never mailed again.</p>
-      <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). A list bigger than one day&apos;s ceiling drains day by day — unsent addresses stay queued and the Resume button sends the next batch. Tick Auto-drain at compose time and the queue continues automatically each day instead — still never above your provider&apos;s daily cap.</p>
+      <p className="mt-2 text-sm text-muted">Why a provider at all? Email has to leave from a real mail server — there is no free keyless sender. A shared keyless server would get blacklisted within days and nobody&apos;s mail would arrive, so every mail here goes out through your own free provider account instead. This panel itself charges nothing per email: the daily ceiling is your provider&apos;s free tier (Gmail SMTP 500/day, Brevo 300/day, Resend 100/day). A list bigger than one day&apos;s ceiling drains day by day — unsent addresses stay queued and the Resume button sends the next batch. Tick Auto-drain at compose time and the queue continues automatically each day instead — still never above your provider&apos;s daily cap. If the LeadsForceGen platform sender is offered above, it sends from the site&apos;s own verified address instead — same unsubscribe footer, same Brevo 300/day cap.</p>
 
       <section className="card mt-6 space-y-4 p-4 sm:p-5" aria-label="Provider settings">
         <h2 className="text-xl font-bold">1. Your sending provider (free)</h2>
@@ -255,9 +264,18 @@ export default function BulkEmail() {
             <option value="smtp">Gmail — no API key needed (SMTP, 500/day free)</option>
             <option value="brevo">Brevo — API key needed (300/day free)</option>
             <option value="resend">Resend — API key needed (100/day free)</option>
+            {platformAvailable && <option value="platform">LeadsForceGen platform sender (no setup on your side)</option>}
           </select>
+          {settings?.provider === "platform" && !platformAvailable && (
+            <p className="mt-2 text-sm text-danger">The platform sender is currently unavailable on the server — pick another provider until the site owner configures it.</p>
+          )}
         </div>
-        {prov === "smtp" ? (
+        {prov === "platform" ? (
+          <div className="space-y-4">
+            <p className="text-sm text-muted">Mail sent with this option comes from the LeadsForceGen platform address — not from your personal address. No setup on your side: the platform address is verified by the site owner, and every mail still carries the unsubscribe footer. Replies go to your Reply-To address below, or to the platform address if you leave it blank.</p>
+            <div><label className="label" htmlFor="be-replyto">Reply-To email <span className="font-normal text-muted">(optional)</span></label><input id="be-replyto" className="input" placeholder="you@example.com" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} /></div>
+          </div>
+        ) : prov === "smtp" ? (
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div><label className="label" htmlFor="be-user">Gmail address</label><input id="be-user" className="input" placeholder="you@gmail.com" value={smtp.user} onChange={(e) => setSmtp({ ...smtp, user: e.target.value })} /></div>
@@ -281,7 +299,7 @@ export default function BulkEmail() {
         )}
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="label" htmlFor="be-sname">Sender name</label><input id="be-sname" className="input" value={senderName} onChange={(e) => setSenderName(e.target.value)} /></div>
-          <div><label className="label" htmlFor="be-semail">Sender email</label><input id="be-semail" className="input" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} /></div>
+          {prov !== "platform" && <div><label className="label" htmlFor="be-semail">Sender email</label><input id="be-semail" className="input" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} /></div>}
         </div>
         <div><label className="label" htmlFor="be-hook">Webhook URL <span className="font-normal text-muted">(optional — gets sent/opened/clicked/unsubscribed events)</span></label><input id="be-hook" className="input" placeholder="https://your-site.com/hooks/email" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} /></div>
         <div className="flex flex-wrap items-center gap-3">
@@ -290,7 +308,7 @@ export default function BulkEmail() {
             {testSending ? "Sending test…" : "Send test email to myself"}
           </button>
         </div>
-        {!settings?.keySet && <p className="text-xs text-muted">Save your settings first — the test email goes to your sender address using those saved settings.</p>}
+        {!settings?.keySet && <p className="text-xs text-muted">Save your settings first — the test email goes to {prov === "platform" ? "your account email" : "your sender address"} using those saved settings.</p>}
         {saveMsg && <p className="text-sm text-muted">{saveMsg}</p>}
         {testMsg && <p className={`text-sm ${testOk ? "text-success" : "text-danger"}`} role={testOk ? "status" : "alert"}>{testMsg}</p>}
       </section>
@@ -308,13 +326,14 @@ export default function BulkEmail() {
         </div>
         <div className="space-y-1">
           <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={autoDrain} disabled={attachments.length > 0} onChange={(e) => setAutoDrain(e.target.checked)} />
+            <input type="checkbox" className="mt-1" checked={autoDrain} disabled={attachments.length > 0 || prov === "platform"} onChange={(e) => setAutoDrain(e.target.checked)} />
             <span>
               <span className="font-medium">Auto-drain daily until done</span>
               <span className="block text-muted">Auto-drain sends up to your provider&apos;s daily limit each day until the list is done. It never exceeds the daily cap. No manual Resume clicks needed (up to 5,000 recipients per auto-drain campaign).</span>
             </span>
           </label>
           {attachments.length > 0 && <p className="text-sm text-muted">Auto-drain is text-only; campaigns with attachments use manual Resume.</p>}
+          {prov === "platform" && <p className="text-sm text-muted">Auto-drain is not available with the platform sender — queued mail continues with manual Resume.</p>}
         </div>
       </section>
 
