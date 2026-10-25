@@ -222,7 +222,7 @@ export default function BulkEmail() {
           <p className="text-sm text-muted break-words">Dead addresses (won&apos;t be sent): {verified.invalid.slice(0, 20).join(", ")}{verified.invalid.length > 20 ? "…" : ""}</p>
         )}
         <button type="button" className="btn-primary btn-block" disabled={sending || !(verified?.valid.length || extracted.length)} onClick={() => void send()}>
-          {sending ? "Sending…" : `Send to ${(verified?.valid ?? extracted).length} recipients (max 50 per send, 300/day)`}
+          {sending ? "Sending…" : `Send to ${(verified?.valid ?? extracted).length} recipients (max 50 per send; daily cap follows your provider's free tier)`}
         </button>
         {sendResult && (
           <div className="rounded-lg border border-border p-3 text-sm">

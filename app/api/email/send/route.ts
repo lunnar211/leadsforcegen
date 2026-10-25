@@ -7,11 +7,14 @@ import { buildHtml, rewriteLinks, sendOne, fireWebhook, type Attachment, type Pr
 import { getBlocklist, isBlocked } from "@/lib/engine/blocklist";
 
 // Caps that keep a campaign inside one serverless invocation and inside
-// a free provider tier (Brevo free = 300/day): 50 recipients per send
-// call, 300 sent per user per day, 3 attachments totaling 2 MB raw
-// (serverless request bodies cap near 4.5 MB once base64-inflated).
+// each free provider's own tier: 50 recipients per send call (the 60s
+// serverless limit, not a license limit — the panel itself charges
+// nothing per email), and a daily cap that follows the CONNECTED
+// provider's free tier (Brevo 300, Resend 100, SMTP/Gmail 500). The
+// software never limits you beyond what your provider allows; the
+// queue + Resume path lets a big list drain across calls and days.
 const PER_SEND_CAP = 50;
-const DAILY_CAP = 300;
+const DAILY_CAPS: Record<string, number> = { brevo: 300, resend: 100, smtp: 500 };
 const MAX_ATTACH_BYTES = 2 * 1024 * 1024;
 const SEND_DEADLINE_MS = 50_000;
 
@@ -137,7 +140,7 @@ export async function POST(req: Request) {
     .eq("user_id", auth.user.id)
     .eq("status", "sent")
     .gte("created_at", today);
-  const budget = Math.max(0, DAILY_CAP - (sentToday || 0));
+  const budget = Math.max(0, (DAILY_CAPS[settings.provider] ?? 300) - (sentToday || 0));
   // Attachments come from the request on both paths (new + resume).
   const attachments: Attachment[] = Array.isArray(body.attachments) ? (body.attachments as Attachment[]).slice(0, 3) : [];
   {
