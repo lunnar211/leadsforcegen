@@ -41,23 +41,29 @@ export default function Signup() {
     }
     setBusy(true);
     try {
-      const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
-      if (error) {
-        setMsg(/already registered/i.test(error.message)
-          ? "An account with this email already exists. Try logging in instead."
-          : error.message);
+      // Signup goes through the server route, not direct signUp: the
+      // route enforces the disposable-mail block + rate limits BEFORE
+      // any account exists (a browser-side check alone is bypassable).
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(json?.error || "Could not create your account. Try again.");
         return;
       }
-      if (data.session) {
-        // Email confirmation is off (or auto-confirmed): signed in already.
-        await ensureProfile();
-        router.push("/dashboard");
-        router.refresh();
-      } else {
-        // Confirmation email required — do NOT bounce to the dashboard,
-        // where everything would fail as "signed out". Stay and explain.
-        setConfirming(true);
+      // Account created pre-confirmed: sign in to get the session.
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error || !data.session) {
+        setMsg(error?.message || "Account created — please log in.");
+        router.push("/login");
+        return;
       }
+      await ensureProfile();
+      router.push("/dashboard");
+      router.refresh();
     } finally {
       setBusy(false);
     }
