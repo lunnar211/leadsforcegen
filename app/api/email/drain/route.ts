@@ -200,15 +200,32 @@ export async function GET(req: Request) {
       await Promise.all(batch.map(sendOneTo));
     }
 
-    const { data: counts } = await admin.from("email_recipients").select("status").eq("campaign_id", camp.id);
-    const byStatus = (s: string) => (counts || []).filter((r) => r.status === s).length;
-    const done = byStatus("queued") === 0;
+    // Status counts MUST come from exact-count queries, not from
+    // fetching rows: PostgREST pages unbounded selects (default 1000
+    // rows), so a row fetch undercounts any campaign over 1000
+    // recipients — and the 5000-recipient cap makes that a real case.
+    // An undercounted queued total would flip a still-queued campaign
+    // to "done" (the cron only picks up sending/partial) and wipe its
+    // auto-drain body while recipients were still queued.
+    const countStatus = async (s: string): Promise<number> => {
+      const { count } = await admin
+        .from("email_recipients")
+        .select("id", { count: "exact", head: true })
+        .eq("campaign_id", camp.id)
+        .eq("status", s);
+      return count || 0;
+    };
+    const queuedCount = await countStatus("queued");
+    const sentCount = await countStatus("sent");
+    const failedCount = await countStatus("failed");
+    const blockedCount = await countStatus("blocked");
+    const done = queuedCount === 0;
     await admin
       .from("email_campaigns")
       .update({
         status: done ? "done" : "partial",
-        sent: byStatus("sent"),
-        failed: byStatus("failed"),
+        sent: sentCount,
+        failed: failedCount,
         // Bodies must not linger: clear the encrypted body the moment
         // the campaign finishes.
         ...(done ? { body_enc: null } : {}),
@@ -218,8 +235,8 @@ export async function GET(req: Request) {
       campaignId: camp.id,
       sent,
       failed,
-      queued: byStatus("queued"),
-      blocked: byStatus("blocked"),
+      queued: queuedCount,
+      blocked: blockedCount,
       status: done ? "done" : "partial",
       deadlineHit: Date.now() - t0 > DRAIN_DEADLINE_MS,
     });

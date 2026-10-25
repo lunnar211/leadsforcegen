@@ -99,7 +99,8 @@ export async function POST(req: Request) {
       .from("email_recipients")
       .select("id, email, token")
       .eq("campaign_id", campaignId)
-      .eq("status", "queued");
+      .eq("status", "queued")
+      .order("created_at", { ascending: true });
     queued = (rows || []) as typeof queued;
     // Resume reuses the campaign's stored subject/template via the
     // campaign row; the body is re-supplied by the client.
@@ -283,21 +284,37 @@ export async function POST(req: Request) {
     if (Date.now() - t0 > SEND_DEADLINE_MS) break;
   }
   const remaining = todo.length - sent - failed;
-  const { data: counts } = await admin.from("email_recipients").select("status").eq("campaign_id", campaignId);
-  const byStatus = (s: string) => (counts || []).filter((r) => r.status === s).length;
+  // Status counts MUST come from exact-count queries, not from fetching
+  // rows: PostgREST pages unbounded selects (default 1000 rows), so a
+  // row fetch undercounts any campaign over 1000 recipients — and the
+  // 5000-recipient cap makes that a real case. An undercounted queued
+  // total would flip a still-queued campaign to "done" and wipe its
+  // auto-drain body while recipients were still queued.
+  const countStatus = async (s: string): Promise<number> => {
+    const { count } = await admin
+      .from("email_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaignId)
+      .eq("status", s);
+    return count || 0;
+  };
+  const queuedCount = await countStatus("queued");
+  const sentCount = await countStatus("sent");
+  const failedCount = await countStatus("failed");
+  const blockedCount = await countStatus("blocked");
   await admin
     .from("email_campaigns")
     .update({
-      status: byStatus("queued") > 0 ? "partial" : "done",
-      sent: byStatus("sent"),
-      failed: byStatus("failed"),
+      status: queuedCount > 0 ? "partial" : "done",
+      sent: sentCount,
+      failed: failedCount,
     })
     .eq("id", campaignId);
   // Auto-drain bodies must not linger: once nothing is queued, clear
   // the encrypted body. Best-effort and result-ignored on purpose —
   // before the auto-drain migration is applied this update errors on
   // the missing column, and the status update above must still stand.
-  if (byStatus("queued") === 0) {
+  if (queuedCount === 0) {
     await admin.from("email_campaigns").update({ body_enc: null }).eq("id", campaignId);
   }
   return NextResponse.json({
@@ -306,8 +323,8 @@ export async function POST(req: Request) {
       campaignId,
       sent,
       failed,
-      queued: byStatus("queued"),
-      blocked: byStatus("blocked"),
+      queued: queuedCount,
+      blocked: blockedCount,
       deadlineHit: remaining > 0,
     },
   });
