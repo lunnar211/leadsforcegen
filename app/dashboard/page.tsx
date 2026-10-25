@@ -6,6 +6,16 @@ import { type Lead } from "@/lib/types";
 import { supabase } from "@/lib/supabaseClient";
 import SupportCard from "@/components/SupportCard";
 import MfaCard from "@/components/MfaCard";
+import areaData from "@/lib/data/areas.json";
+
+// Country first, then exact area: picking a country narrows the area
+// suggestions to places we actually hold businesses for, and every
+// other country still accepts a free-typed city or neighbourhood —
+// the search geocodes worldwide, so no country is ever a dead end.
+const COUNTRIES = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cambodia", "Cameroon", "Canada", "Cape Verde", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"];
+// Top localities per covered country, measured from the stored
+// datasets (lib/data/areas.json, regenerated from data/*.csv).
+const AREAS: Record<string, string[]> = areaData as Record<string, string[]>;
 
 type HistoryItem = { at: string; industry: string; location: string; count: number };
 type UsageState = { configured: boolean; plan: string; used: number; limit: number; remaining: number };
@@ -56,6 +66,19 @@ export default function Dashboard() {
   const [signedOut, setSignedOut] = useState(false);
   const [authKnown, setAuthKnown] = useState(false);
   const [form, setForm] = useState({ industry: "", location: "", size: "11-50", keywords: "" });
+  const [country, setCountry] = useState("");
+  const [area, setArea] = useState("");
+  // Country + area compose the searched location ("Kathmandu, Nepal"):
+  // the geocoder resolves the exact place, and the stored database
+  // answers from its own locality match. Either half alone still works.
+  const pickCountry = (v: string) => {
+    setCountry(v);
+    setForm((f) => ({ ...f, location: [area.trim(), v.trim()].filter(Boolean).join(", ") }));
+  };
+  const pickArea = (v: string) => {
+    setArea(v);
+    setForm((f) => ({ ...f, location: [v.trim(), country.trim()].filter(Boolean).join(", ") }));
+  };
   const [fieldErrors, setFieldErrors] = useState<{ industry?: string; location?: string }>({});
   const [leads, setLeads] = useState<Lead[]>([]);
   const [note, setNote] = useState(""); const [source, setSource] = useState("");
@@ -133,7 +156,7 @@ export default function Dashboard() {
     const location = (override?.location ?? form.location).trim();
     const errs: typeof fieldErrors = {};
     if (!industry) errs.industry = "Enter what you are looking for — e.g. dentists, car owners, restaurants.";
-    if (!location) errs.location = "Enter a location — e.g. Dubai or Kathmandu.";
+    if (!location) errs.location = "Pick a country and an area — e.g. Nepal, then Kathmandu.";
     setFieldErrors(errs);
     if (Object.keys(errs).length) return;
 
@@ -403,12 +426,35 @@ export default function Dashboard() {
               {fieldErrors.industry && <p className="field-error" id="f-industry-error" role="alert">{fieldErrors.industry}</p>}
             </div>
             <div>
-              <label className="label" htmlFor="f-location">Location</label>
+              <label className="label" htmlFor="f-country">Country</label>
+              <select id="f-country" className="input" value={country} onChange={(e) => pickCountry(e.target.value)}>
+                <option value="">All countries — or pick one</option>
+                {COUNTRIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="f-area">Exact place / area</label>
               <input
-                id="f-location" className="input" placeholder="e.g. Dubai" value={form.location} onChange={set("location")}
+                id="f-area" className="input" list="area-suggestions"
+                placeholder={country ? `e.g. ${AREAS[country]?.[0] ?? "a city or neighbourhood"}` : "Pick a country first, or type any city or neighbourhood"}
+                value={area} onChange={(e) => pickArea(e.target.value)}
                 autoComplete="off" aria-invalid={Boolean(fieldErrors.location)}
                 aria-describedby={fieldErrors.location ? "f-location-error" : undefined}
               />
+              <datalist id="area-suggestions">
+                {(country ? AREAS[country] ?? [] : []).map((a) => (<option key={a} value={a} />))}
+              </datalist>
+              <p className="mt-1 text-xs text-muted">
+                {country && AREAS[country]
+                  ? "Areas shown are places we hold businesses for — or type any exact place."
+                  : "Type any city, neighbourhood, or exact place — the search works worldwide."}
+              </p>
+              {form.location && (
+                <p className="mt-1 text-xs">
+                  Searching in: <span className="font-medium text-fg">{form.location}</span>
+                  {" · "}<a href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(form.location)}`} target="_blank" rel="noreferrer" className="underline">View area on map</a>
+                </p>
+              )}
               {fieldErrors.location && <p className="field-error" id="f-location-error" role="alert">{fieldErrors.location}</p>}
             </div>
             <div>
@@ -612,7 +658,7 @@ export default function Dashboard() {
                   <li key={i} className="card p-0 text-sm">
                     <button
                       type="button" disabled={loading}
-                      onClick={() => { setForm({ ...form, industry: h.industry, location: h.location }); void runSearch({ industry: h.industry, location: h.location }); }}
+                      onClick={() => { setCountry(""); setArea(""); setForm({ ...form, industry: h.industry, location: h.location }); void runSearch({ industry: h.industry, location: h.location }); }}
                       className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 p-4 text-left"
                       aria-label={`Re-run search for ${h.industry || "any industry"} in ${h.location || "any location"}`}
                     >
