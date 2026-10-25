@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import SiteBanner from "@/components/SiteBanner";
+import CookieConsent, { CookieChoicesButton } from "@/components/CookieConsent";
 
 // Typography per the LeadsForceGen design system (UI/UX Pro Max):
 // Plus Jakarta Sans — friendly, modern SaaS.
@@ -118,6 +119,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <li><a className="text-muted hover:text-fg" href="/privacy">Privacy</a></li>
                 <li><a className="text-muted hover:text-fg" href="/terms">Terms</a></li>
                 <li><a className="text-muted hover:text-fg" href="/unsubscribe">Remove a business</a></li>
+                <li><CookieChoicesButton /></li>
               </ul>
             </nav>
             <div>
@@ -127,6 +129,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <div className="border-t border-border py-4 text-center text-xs text-muted">© 2026 LeadsForceGen. All rights reserved.</div>
         </footer>
+        <CookieConsent />
       </body>
     </html>
   );
