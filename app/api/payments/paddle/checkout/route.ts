@@ -10,14 +10,19 @@ export async function POST(req: Request) {
   if (!paddleConfigured()) {
     return NextResponse.json({ ok: false, error: "Paddle checkout is not connected yet." }, { status: 503 });
   }
-  let userId: string | null = null;
-  let email: string | null = null;
-  if (quotaConfigured()) {
-    const user = await getAuthUser(req);
-    if (!user) return NextResponse.json({ ok: false, error: "Sign in first, then try again." }, { status: 401 });
-    userId = user.id;
-    email = user.email ?? null;
+  // Fail closed like Lemon/Binance: without the account backend there is
+  // no account a payment could upgrade, so never create an orphan guest
+  // checkout (previously this fell through with userId null).
+  if (!quotaConfigured()) {
+    return NextResponse.json(
+      { ok: false, error: "Accounts are not connected yet, so Pro cannot be activated automatically. Please check back shortly." },
+      { status: 503 },
+    );
   }
+  const user = await getAuthUser(req);
+  if (!user) return NextResponse.json({ ok: false, error: "Sign in first, then try again." }, { status: 401 });
+  const userId = user.id;
+  const email = user.email ?? null;
   try {
     const res = await fetch(`${paddleApiBase()}/transactions`, {
       method: "POST",

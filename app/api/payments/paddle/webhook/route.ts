@@ -54,9 +54,13 @@ export async function POST(req: Request) {
 
   if (type === "transaction.completed") {
     // The transaction must contain OUR Pro price when items are listed.
+    // Fail closed: an empty expected price must never pass — a
+    // signature-valid webhook with an unconfigured Price ID must not
+    // record a payment. When the env var is set this is identical to
+    // the previous check.
     const expectedPrice = process.env.PADDLE_PRICE_ID_PRO || "";
     const priceIds = (data.items || []).map((i) => i.price?.id).filter(Boolean) as string[];
-    const priceOk = !expectedPrice || priceIds.length === 0 || priceIds.includes(expectedPrice);
+    const priceOk = expectedPrice !== "" && (priceIds.length === 0 || priceIds.includes(expectedPrice));
     const paymentId = `paddle_${data.id}`;
     if (priceOk && data.id && !(await alreadyProcessed("payment", "paddle", paymentId))) {
       await recordPayment({

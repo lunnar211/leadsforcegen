@@ -51,8 +51,12 @@ export async function POST(req: Request) {
         (attrs as { variant_id?: unknown }).variant_id ||
           ((attrs.first_order_item as Record<string, unknown> | undefined)?.variant_id ?? ""),
       );
+      // Fail closed: an empty expected variant must never pass — a
+      // signature-valid webhook with an unconfigured variant ID must not
+      // record a payment. When the env var is set this is identical to
+      // the previous check.
       const expectedVariant = process.env.LEMONSQUEEZY_VARIANT_ID_PRO || "";
-      const variantOk = !expectedVariant || !variantId || variantId === expectedVariant;
+      const variantOk = expectedVariant !== "" && (!variantId || variantId === expectedVariant);
       const paymentId = eventName === "order_created" ? `ls_order_${dataId}` : `ls_subpay_${String(attrs.order_id || dataId)}`;
       if (paid && variantOk && !(await alreadyProcessed("payment", "lemonsqueezy", paymentId))) {
         await recordPayment({
