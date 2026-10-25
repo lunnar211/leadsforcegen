@@ -115,9 +115,9 @@ export default function AdminPanel() {
           {TABS.map((t) => (
             <button
               key={t.id} type="button" onClick={() => setTab(t.id)} aria-current={tab === t.id ? "page" : undefined}
-              className="shrink-0 rounded-[var(--radius)] px-3.5 text-left text-sm font-semibold transition-colors lg:w-full"
+              className={`shrink-0 rounded-[var(--radius)] px-3.5 text-left text-sm font-semibold transition-colors lg:w-full ${tab === t.id ? "" : "hover:bg-surface"}`}
               style={tab === t.id
-                ? { background: "var(--accent)", color: "#fff", minHeight: 44 }
+                ? { background: "var(--accent)", color: "var(--accent-fg)", minHeight: 44 }
                 : { color: "var(--fg)", minHeight: 44 }}
             >
               {t.label}

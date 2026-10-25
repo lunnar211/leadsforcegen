@@ -43,6 +43,7 @@ export default function BulkEmail() {
   const [attachments, setAttachments] = useState<{ name: string; content: string; type: string }[]>([]);
   const [attachErr, setAttachErr] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
   const [sendResult, setSendResult] = useState<{ campaignId: string; sent: number; failed: number; queued: number; blocked: number } | null>(null);
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -121,6 +122,7 @@ export default function BulkEmail() {
 
   async function send(resumeId?: string) {
     setSending(true);
+    setSendError("");
     setSendResult(null);
     const h = await headers();
     const payload: Record<string, unknown> = resumeId
@@ -133,7 +135,7 @@ export default function BulkEmail() {
       void load();
     } else {
       setSendResult(null);
-      alert(r.error || "Send failed.");
+      setSendError(r.error || "Send failed. Check your provider settings and try again.");
     }
   }
 
@@ -224,6 +226,7 @@ export default function BulkEmail() {
         <button type="button" className="btn-primary btn-block" disabled={sending || !(verified?.valid.length || extracted.length)} onClick={() => void send()}>
           {sending ? "Sending…" : `Send to ${(verified?.valid ?? extracted).length} recipients (max 50 per send; daily cap follows your provider's free tier)`}
         </button>
+        {sendError && <p className="rounded-[var(--radius)] bg-danger-bg p-3 text-sm text-danger" role="alert">{sendError}</p>}
         {sendResult && (
           <div className="rounded-lg border border-border p-3 text-sm">
             <p>Sent: {sendResult.sent} · Failed: {sendResult.failed} · Still queued: {sendResult.queued} · Blocked (unsubscribed): {sendResult.blocked}</p>

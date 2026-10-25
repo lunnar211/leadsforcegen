@@ -195,7 +195,10 @@ export default function Checkout() {
       {msg && <p className="mt-4 text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="alert">{msg}</p>}
       {region === "NP" && <ManualPayment />}
       <p className="text-xs text-muted mt-4">Secure by design: prices are set on the server, payments are signature-verified on the server, and duplicate payments / replayed webhooks are automatically skipped — a browser success message alone can never activate Pro.</p>
-      <Link href="/dashboard" className="block text-center mt-6 text-sm font-semibold text-accent-text underline">← Back to dashboard</Link>
+      <Link href="/dashboard" className="mt-6 flex items-center justify-center gap-1.5 text-center text-sm font-semibold text-accent-text underline">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+        Back to dashboard
+      </Link>
     </div>
   );
 }

@@ -89,7 +89,10 @@ export default function Signup() {
 
       {confirming ? (
         <div className="card mt-6 p-5" role="status">
-          <h2 className="text-lg font-semibold text-fg">📩 Confirm your email to finish</h2>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-fg">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-accent-text" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3.5 7 8.5 6 8.5-6" /></svg>
+            Confirm your email to finish
+          </h2>
           <p className="mt-2 text-sm text-muted">
             We sent a confirmation link to <b className="text-fg">{email}</b>. Open it, then come back and log in.
             Your dashboard unlocks right after your first login.

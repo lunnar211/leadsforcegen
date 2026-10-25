@@ -33,7 +33,10 @@ export default function AdminHealth() {
 
   return (
     <section aria-label="System health">
-      <h2 className="font-semibold text-fg mt-10">🩺 System health</h2>
+      <h2 className="flex items-center gap-2 font-semibold text-fg mt-10">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-accent-text" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
+        System health
+      </h2>
       <p className="mt-1 text-sm text-muted">
         Runs every pipeline stage live from the server — location lookup, map data sources, AI keys and test generations, and the results cache — and shows exactly which stage is healthy or broken.
       </p>
@@ -43,8 +46,12 @@ export default function AdminHealth() {
       {error && <p className="mt-3 text-sm text-danger" role="alert">{error}</p>}
       {stages && (
         <div className="card mt-4 overflow-x-auto">
-          <p className="p-4 pb-2 text-sm text-fg">
-            {bad === 0 ? "✅ All stages healthy." : `⚠️ ${bad} stage${bad === 1 ? "" : "s"} failing — the red rows below are where to look.`}
+          <p className="flex items-start gap-2 p-4 pb-2 text-sm text-fg">
+            {bad === 0 ? (
+              <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-success" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8.5 12.5 2.5 2.5 4.5-5" /></svg><span>All stages healthy.</span></>
+            ) : (
+              <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-danger" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></svg><span>{bad} stage{bad === 1 ? "" : "s"} failing — the red rows below are where to look.</span></>
+            )}
             {at && <span className="text-muted"> Ran at {at.slice(0, 19).replace("T", " ")} UTC.</span>}
           </p>
           <table className="w-full text-sm">

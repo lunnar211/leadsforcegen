@@ -143,11 +143,18 @@ export default async function SeoLeadPage({ params }: { params: Promise<Params> 
 
       <h2 className="mt-8 text-2xl font-bold tracking-tight text-fg">What each lead includes</h2>
       <ul className="mt-3 space-y-2 text-sm text-fg">
-        <li>✓ Business name, category and address in {city.name}</li>
-        <li>✓ Phone and email the business publishes, with the email domain mail-checked</li>
-        <li>✓ Website and social profiles (Facebook, Instagram, LinkedIn, YouTube, TikTok, X)</li>
-        <li>✓ A quality score and the listing source, so you can verify before outreach</li>
-        <li>✓ One-click export to CSV, Excel, PDF or JSON (Pro)</li>
+        {[
+          `Business name, category and address in ${city.name}`,
+          "Phone and email the business publishes, with the email domain mail-checked",
+          "Website and social profiles (Facebook, Instagram, LinkedIn, YouTube, TikTok, X)",
+          "A quality score and the listing source, so you can verify before outreach",
+          "One-click export to CSV, Excel, PDF or JSON (Pro)",
+        ].map((item) => (
+          <li key={item} className="flex gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0 text-success" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11" /></svg>
+            {item}
+          </li>
+        ))}
       </ul>
 
       <h2 className="mt-8 text-2xl font-bold tracking-tight text-fg">How it works</h2>

@@ -18,6 +18,40 @@ const COUNTRIES = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "An
 // datasets (lib/data/areas.json, regenerated from data/*.csv).
 const AREAS: Record<string, string[]> = areaData as Record<string, string[]>;
 
+// Small inline SVG icons (design system rule: SVG icons, never emoji
+// or text glyphs). Used by the note banners, lead cards, and buttons.
+const ip = {
+  viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.9,
+  strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true,
+} as const;
+function MailIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3.5 7 8.5 6 8.5-6" /></svg>);
+}
+function PhoneIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.13.96.36 1.9.7 2.8a2 2 0 0 1-.45 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.25a2 2 0 0 1 2.1-.45c.9.34 1.84.57 2.8.7A2 2 0 0 1 22 16.9z" /></svg>);
+}
+function PinIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></svg>);
+}
+function ClockIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>);
+}
+function GlobeIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><circle cx="12" cy="12" r="9" /><path d="M2.5 12h19M12 2.5c2.5 2.6 3.9 5.7 3.9 9.5s-1.4 6.9-3.9 9.5c-2.5-2.6-3.9-5.7-3.9-9.5s1.4-6.9 3.9-9.5z" /></svg>);
+}
+function RefreshIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" /></svg>);
+}
+function SearchIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>);
+}
+function CheckCircleIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><circle cx="12" cy="12" r="9" /><path d="m8.5 12.5 2.5 2.5 4.5-5" /></svg>);
+}
+function WarnIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (<svg {...ip} className={`${className} shrink-0`}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /><path d="M12 9v4M12 17h.01" /></svg>);
+}
+
 type HistoryItem = { at: string; industry: string; location: string; count: number };
 type UsageState = { configured: boolean; plan: string; used: number; limit: number; remaining: number; email?: string };
 type Toast = { kind: "success" | "error"; text: string } | null;
@@ -375,15 +409,15 @@ export default function Dashboard() {
         <div className="mt-6 flex gap-2" role="tablist" aria-label="Dashboard sections">
           <button
             type="button" role="tab" aria-selected={dashTab === "search"} onClick={() => setDashTab("search")}
-            className="rounded-[var(--radius)] px-4 py-2 text-sm font-semibold"
-            style={dashTab === "search" ? { background: "var(--accent)", color: "#fff" } : { color: "var(--fg)" }}
+            className="rounded-[var(--radius)] border px-4 py-2 text-sm font-semibold transition-colors"
+            style={dashTab === "search" ? { background: "var(--accent)", color: "var(--accent-fg)", borderColor: "transparent" } : { color: "var(--fg)", borderColor: "var(--border)", background: "var(--card)" }}
           >
             Lead search
           </button>
           <button
             type="button" role="tab" aria-selected={dashTab === "pro"} onClick={() => setDashTab("pro")}
-            className="rounded-[var(--radius)] px-4 py-2 text-sm font-semibold"
-            style={dashTab === "pro" ? { background: "var(--accent)", color: "#fff" } : { color: "var(--fg)" }}
+            className="rounded-[var(--radius)] border px-4 py-2 text-sm font-semibold transition-colors"
+            style={dashTab === "pro" ? { background: "var(--accent)", color: "var(--accent-fg)", borderColor: "transparent" } : { color: "var(--fg)", borderColor: "var(--border)", background: "var(--card)" }}
           >
             Pro panel
           </button>
@@ -436,7 +470,7 @@ export default function Dashboard() {
                   {isPro && <span className="text-muted"> (fair-use limit)</span>}
                 </p>
                 <div
-                  className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-surface border border-border"
+                  className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border"
                   role="progressbar" aria-valuenow={usage.used} aria-valuemin={0} aria-valuemax={usage.limit}
                   aria-label={`${usage.used} of ${usage.limit} leads used today`}
                 >
@@ -536,7 +570,7 @@ export default function Dashboard() {
             </div>
             <button type="button" onClick={() => void runScrape()} disabled={scraping} className="btn-ghost btn-block" aria-busy={scraping}>
               {scraping && <span className="spinner" aria-hidden="true" />}
-              {scraping ? "Reading website…" : "🌐 Extract lead from website"}
+              {scraping ? "Reading website…" : (<><GlobeIcon /> Extract lead from website</>)}
             </button>
           </div>
         </div>
@@ -544,12 +578,12 @@ export default function Dashboard() {
         {/* Right column: results, outreach, history */}
         <div className="min-w-0">
           {note && !searchError && (source === "sample" || source === "none" ? (
-            <p className="rounded-[var(--radius)] border border-warning bg-warning-bg p-3 text-sm text-warning">
-              ⚠️ {note}
+            <p className="flex items-start gap-2 rounded-[var(--radius)] border border-warning bg-warning-bg p-3 text-sm text-warning">
+              <WarnIcon className="mt-0.5 h-4 w-4" /><span>{note}</span>
             </p>
           ) : (
-            <p className="rounded-[var(--radius)] border border-success bg-success-bg p-3 text-sm text-success">
-              ✅ {note} — Verify every lead before outreach.
+            <p className="flex items-start gap-2 rounded-[var(--radius)] border border-success bg-success-bg p-3 text-sm text-success">
+              <CheckCircleIcon className="mt-0.5 h-4 w-4" /><span>{note} — Verify every lead before outreach.</span>
             </p>
           ))}
 
@@ -615,20 +649,20 @@ export default function Dashboard() {
                         <p className="mt-2 text-sm text-fg break-words">
                           {l.email && (
                             <span className="inline-flex flex-wrap items-center gap-x-2">
-                              ✉️ <a href={`mailto:${l.email}`} className="text-accent-text underline">{l.email}</a>
+                              <MailIcon /> <a href={`mailto:${l.email}`} className="text-accent-text underline">{l.email}</a>
                               <button type="button" onClick={() => void copyText(l.email!, "Email")} className="text-xs text-muted underline" aria-label={`Copy email ${l.email}`}>copy</button>
                               <br />
                             </span>
                           )}
                           {l.phone && (
                             <span className="inline-flex flex-wrap items-center gap-x-2">
-                              📞 <a href={`tel:${l.phone.replace(/[^+\d]/g, "")}`} className="text-accent-text underline">{l.phone}</a>
+                              <PhoneIcon /> <a href={`tel:${l.phone.replace(/[^+\d]/g, "")}`} className="text-accent-text underline">{l.phone}</a>
                               <button type="button" onClick={() => void copyText(l.phone!, "Phone")} className="text-xs text-muted underline" aria-label={`Copy phone ${l.phone}`}>copy</button>
                               <br />
                             </span>
                           )}
-                          {l.address && <>📍 {l.address}<br /></>}
-                          {l.hours && <>🕐 {l.hours}</>}
+                          {l.address && (<><span className="inline-flex items-center gap-1.5"><PinIcon />{l.address}</span><br /></>)}
+                          {l.hours && (<span className="inline-flex items-center gap-1.5"><ClockIcon />{l.hours}</span>)}
                         </p>
                       )}
                       {l.socials && l.socials.length > 0 && (
@@ -646,7 +680,7 @@ export default function Dashboard() {
                           Source: <a className="text-accent-text underline break-all" href={l.sourceUrl} target="_blank" rel="noreferrer">{l.sourceName || "public source"}</a>
                         </p>
                       )}
-                      <button onClick={() => genOutreach(l)} className="btn-ghost mt-3 text-sm">✉️ AI outreach</button>
+                      <button onClick={() => genOutreach(l)} className="btn-ghost mt-3 text-sm"><MailIcon /> AI outreach</button>
                     </article>
                   ))}
                 </div>
@@ -656,8 +690,8 @@ export default function Dashboard() {
 
             {!loading && !searchError && searched && leads.length === 0 && (
               <div className="card p-6 text-center">
-                <p className="text-3xl" aria-hidden="true">🔎</p>
-                <h2 className="mt-2 font-semibold text-fg">No leads found for that search</h2>
+                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-surface text-muted" aria-hidden="true"><SearchIcon /></span>
+                <h2 className="mt-3 font-semibold text-fg">No leads found for that search</h2>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
                   Try a broader industry (e.g. “restaurants” instead of “vegan restaurants”) or a bigger city nearby.
                 </p>
@@ -703,7 +737,7 @@ export default function Dashboard() {
                     >
                       <span className="font-medium text-fg break-words">{h.industry || "Any industry"} · {h.location || "Any location"}</span>
                       <span className="text-muted">{h.count} leads</span>
-                      <span className="text-xs text-accent-text underline">↻ Re-run</span>
+                      <span className="inline-flex items-center gap-1 text-xs text-accent-text underline"><RefreshIcon /> Re-run</span>
                       <span className="ml-auto text-xs text-muted">{new Date(h.at).toLocaleString()}</span>
                     </button>
                   </li>

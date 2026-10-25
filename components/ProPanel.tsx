@@ -94,7 +94,10 @@ export default function ProPanel({
               <li key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-2 first:border-t-0 first:pt-0">
                 <span className="font-medium text-fg">{h.industry || "Any industry"} · {h.location || "Any location"}</span>
                 <span className="text-muted">{h.count} leads</span>
-                <button type="button" onClick={() => onReRun(h)} className="ml-auto text-xs text-accent-text underline">↻ Re-run</button>
+                <button type="button" onClick={() => onReRun(h)} className="ml-auto inline-flex items-center gap-1 text-xs text-accent-text underline">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" /></svg>
+                  Re-run
+                </button>
                 <span className="text-xs text-muted">{new Date(h.at).toLocaleString()}</span>
               </li>
             ))}

@@ -198,6 +198,28 @@
 
 ---
 
+## Redesign Pass 2026-10-25 (pro polish, no behavior change)
+
+- **SVG icons only, enforced site-wide:** every emoji/text glyph removed from
+  UI — dashboard note banners, lead contact rows, scrape/outreach buttons,
+  empty state, history re-runs, signup confirmation heading, admin health
+  summary, SEO city pages, checkout back link. Icons are small inline SVGs
+  in each file's own style (see `app/dashboard/page.tsx` icon set).
+- **No browser `alert()`:** bulk-email send failures now render an inline
+  `role="alert"` error under the send button instead of a blocking dialog.
+- **Quota track uses `--border`:** the dashboard usage bar track was
+  `bg-surface` (white-on-white in light mode, invisible); it now uses the
+  border token so the track reads against the card in both themes.
+- **Tab affordance:** inactive tabs (dashboard Pro tabs, admin sidebar)
+  now carry a visible border/hover state instead of bare text, so the
+  selected tab is unambiguous and inactive tabs still read as controls.
+- **Pricing cards:** `card-hover` added to both pricing-page cards for
+  consistency with the landing-page pricing cards.
+- No new colors or spacing tokens were introduced in this pass; all
+  changes reuse the tokens above. Gradients remain out: the only gradient
+  in the codebase is the neutral skeleton shimmer and the faint radial
+  hero mesh (accent tints, never blue→orange).
+
 ## Pre-Delivery Checklist
 
 Before delivering any UI code, verify:
