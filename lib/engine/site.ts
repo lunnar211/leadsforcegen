@@ -1,15 +1,38 @@
 import "server-only";
 import { safeFetch, assertSafeUrl } from "@/lib/safe-fetch";
-import { discoverContactPages, domainOf, extractContacts, extractJsonLd, extractSocials } from "@/lib/engine/search";
+import { discoverContactPages, domainOf, extractContacts, extractJsonLd, extractSocials, preferRoleEmail, ROLE_EMAIL_LOCALS } from "@/lib/engine/search";
 import type { Lead } from "@/lib/types";
 
 // One-click website extraction: the user pastes a business website and
-// gets back the contacts that business publishes on its OWN pages
-// (homepage, then /contact, /contact-us, /about until the essentials are
-// found). Every fetch goes through safe-fetch — SSRF guards, robots.txt,
-// per-host throttling and the policy blocklist (social / login-gated
-// hosts) all apply. Nothing is invented: fields the site does not
-// publish stay empty, and the lead links back to the page it came from.
+// gets back the contacts that business publishes on its OWN pages.
+// Candidate order: homepage, sitemap contact/about pages, nav/footer
+// links pointing at a contact page, then static guesses (/contact,
+// /contact-us, /about, /about-us, /support) — capped at 7 fetches total,
+// the same per-site cap the search enrichment uses. Every fetch goes
+// through safe-fetch — SSRF guards, robots.txt, per-host throttling and
+// the policy blocklist (social / login-gated hosts) all apply. Nothing
+// is invented: fields the site does not publish stay empty, and the
+// lead links back to the page it came from.
+
+// Nav/footer links whose URL contains "contact" are the site's own
+// signposts to its real contact page — better than blind guessing.
+// Same-origin only; mailto/tel/anchor/javascript links are skipped.
+function extractNavContactLinks(html: string, origin: string): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(/href=["']([^"']+)["']/gi)) {
+    const raw = m[1].trim();
+    if (!raw || /^(mailto:|tel:|#|javascript:)/i.test(raw)) continue;
+    try {
+      const u = new URL(raw, origin);
+      if (u.origin !== origin) continue;
+      if (!/contact/i.test(u.pathname)) continue;
+      const clean = `${u.origin}${u.pathname}${u.search}`;
+      if (!out.includes(clean)) out.push(clean);
+    } catch { /* unparseable href — ignore */ }
+    if (out.length >= 3) break;
+  }
+  return out;
+}
 
 function nameFromHtml(html: string): string | undefined {
   const og =
@@ -54,43 +77,82 @@ export async function leadFromWebsite(rawUrl: string): Promise<SiteLeadResult> {
   }
 
   const domain = domainOf(url.toString());
-  const discovered = await discoverContactPages(url.origin);
-  const candidates = [...new Set([url.toString(), ...discovered, `${url.origin}/contact`, `${url.origin}/contact-us`, `${url.origin}/about`])];
+  const discovered = await discoverContactPages(url.origin, true);
 
   let name: string | undefined;
   let kind = "";
-  let email: string | undefined;
   let phone: string | undefined;
   let address: string | undefined;
   let hours: string | undefined;
   let structured = false;
   let firstPageUrl = "";
+  let homeOrigin = "";
   let pagesRead = 0;
   const socials: string[] = [];
+  // Every email found across pages; the final pick prefers a role
+  // inbox, so a generic address on an early page never beats info@
+  // published on the contact page.
+  const emailsFound: string[] = [];
+  const pushEmail = (e?: string): void => {
+    if (e && !emailsFound.includes(e)) emailsFound.push(e);
+  };
 
-  for (const pageUrl of candidates) {
-    if (email && phone && name) break;
+  const readPage = async (pageUrl: string): Promise<string | null> => {
     try {
       const page = await safeFetch(pageUrl);
-      if (page.status < 200 || page.status >= 400) continue;
+      if (page.status < 200 || page.status >= 400) return null;
       pagesRead += 1;
       if (!firstPageUrl) firstPageUrl = page.finalUrl || pageUrl;
-      const ld = extractJsonLd(page.text);
+      if (!homeOrigin) {
+        try {
+          homeOrigin = new URL(page.finalUrl || pageUrl).origin;
+        } catch { /* keep input origin */ }
+      }
+      const ld = extractJsonLd(page.text, domain);
       if (ld.email || ld.phone) structured = true;
       name = name || ld.name || nameFromHtml(page.text);
       kind = kind || humanizeKind(ld.kind);
-      email = email || ld.email;
+      pushEmail(ld.email);
       phone = phone || ld.phone;
       address = address || ld.address;
       hours = hours || ld.hours;
       const found = extractContacts(page.text, domain);
-      email = email || found.email;
+      pushEmail(found.email);
       phone = phone || found.phone;
       for (const s of [...ld.socials, ...extractSocials(page.text)]) {
         if (!socials.includes(s) && socials.length < 6) socials.push(s);
       }
+      return page.text;
     } catch { /* robots/blocked/dead page — try the next one */ }
+    return null;
+  };
+
+  // Homepage first: its nav/footer reveals the real contact links.
+  const homeHtml = await readPage(url.toString());
+  const navLinks = homeHtml ? extractNavContactLinks(homeHtml, homeOrigin || url.origin) : [];
+
+  // Sitemap truth, then the site's own nav links, then static guesses.
+  // Hard cap 7 fetches total — the cap is never raised for extra guesses.
+  const queue: string[] = [];
+  const pushQ = (u: string): void => {
+    if (queue.length < 7 && !queue.includes(u)) queue.push(u);
+  };
+  pushQ(url.toString());
+  for (const u of discovered) pushQ(u);
+  for (const u of navLinks) pushQ(u);
+  for (const s of ["contact", "contact-us", "about", "about-us", "support"]) pushQ(`${url.origin}/${s}`);
+
+  const fetched = new Set<string>([url.toString()]);
+  for (const pageUrl of queue) {
+    if (fetched.has(pageUrl)) continue;
+    // Keep scanning while only a non-role inbox is held: the contact
+    // page may publish the role address. Bounded by the 7-page cap.
+    const best = preferRoleEmail(emailsFound);
+    if (best && ROLE_EMAIL_LOCALS.has(best.split("@")[0]) && phone && name) break;
+    fetched.add(pageUrl);
+    await readPage(pageUrl);
   }
+  const email = preferRoleEmail(emailsFound);
 
   if (!pagesRead) {
     return { lead: null, reason: "Couldn't read that website — it may be down, blocking automated visits, or disallowed by its robots.txt." };

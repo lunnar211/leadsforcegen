@@ -502,26 +502,84 @@ export function extractSocials(html: string): string[] {
   return [...found];
 }
 
+// Business role inboxes, preferred first. Everything else on the same
+// domain is a second tier; an address on any other domain is never
+// accepted (that is someone else's contact, not this business's).
+export const ROLE_EMAIL_LOCALS = new Set(["info", "contact", "hello", "sales", "support", "admin"]);
+
+// Generic/departmental local-part words. Used only to tell a role-like
+// address apart from a named person's address (firstname.lastname).
+const GENERIC_LOCAL_WORDS = new Set([
+  ...ROLE_EMAIL_LOCALS,
+  "office", "team", "help", "mail", "bookings", "enquiries", "enquiry", "inquiries", "inquiry",
+  "press", "careers", "jobs", "service", "services", "general", "reservations", "orders",
+  "billing", "feedback", "hi", "welcome", "contactus", "getintouch",
+]);
+
+/** Prefer a role inbox, else the first address in the list. */
+export function preferRoleEmail(emails: string[]): string | undefined {
+  return emails.find((e) => ROLE_EMAIL_LOCALS.has(e.split("@")[0])) || emails[0];
+}
+
+function emailDomainOf(e: string): string {
+  return (e.split("@")[1] || "").toLowerCase().replace(/^www\./, "");
+}
+
+// Same-domain check, tolerant of www/subdomain placement either way
+// (shop.example.com publishing contact@example.com is the same
+// business; evil-example.com is not — the dot boundary matters).
+export function isSameDomainEmail(e: string, domain: string): boolean {
+  if (!domain) return false;
+  const d = emailDomainOf(e);
+  const base = domain.toLowerCase().replace(/^www\./, "");
+  return d === base || d.endsWith(`.${base}`) || base.endsWith(`.${d}`);
+}
+
+// firstname.lastname / firstname_lastname where neither part is a
+// generic word: a named person's inbox, never harvested.
+function looksLikePersonalName(local: string): boolean {
+  const m = local.match(/^([a-z]{2,})[._]([a-z]{2,})$/);
+  if (!m) return false;
+  return !GENERIC_LOCAL_WORDS.has(m[1]) && !GENERIC_LOCAL_WORDS.has(m[2]);
+}
+
+// Strip script/style bodies before scanning: tracker and app code often
+// contains email-looking strings that no visitor ever sees.
+function stripCode(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script\s*>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style\s*>/gi, " ");
+}
+
 export function extractContacts(html: string, domain: string): { email?: string; phone?: string } {
   const out: { email?: string; phone?: string } = {};
-  const mailtos = [...html.matchAll(/mailto:([^"'?\s>]+)/gi)].map((m) => decodeURIComponent(m[1]).toLowerCase());
-  const plain = (html.match(EMAIL_RE) || []).map((e) => e.toLowerCase());
-  const decoded = html
-    .replace(/\[at\]/gi, "@")
-    .replace(/\(at\)/gi, "@")
-    .replace(/\[dot\]/gi, ".")
-    .replace(/\(dot\)/gi, ".");
-  const decodedEmails = (decoded.match(EMAIL_RE) || []).map((e) => e.toLowerCase());
-  const all = [...new Set([...mailtos, ...plain, ...decodedEmails])].filter(
-    (e) => !/\.(png|jpe?g|webp|svg|gif|css|js|ico)$/i.test(e) && !e.includes("example.") && !e.includes("sentry"),
+  const visible = stripCode(html);
+  const mailtos = [...visible.matchAll(/mailto:([^"'?\s>]+)/gi)].map((m) => {
+    try {
+      return decodeURIComponent(m[1]).toLowerCase();
+    } catch {
+      return m[1].toLowerCase();
+    }
+  });
+  const plain = (visible.match(EMAIL_RE) || []).map((e) => e.toLowerCase());
+  // Deliberately NO obfuscation decoding: "[at]"/"(at)" forms and
+  // Cloudflare-protected addresses are hidden on purpose — if the
+  // owner hid it, it stays hidden. Only addresses the business
+  // publishes in plain sight are collected.
+  const all = [...new Set([...mailtos, ...plain])].filter(
+    (e) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) &&
+      !/\.(png|jpe?g|webp|svg|gif|css|js|ico)$/i.test(e) &&
+      !e.includes("example.") &&
+      !e.includes("sentry") &&
+      !e.startsWith("noreply@") &&
+      !e.startsWith("donotreply@") &&
+      !e.startsWith("no-reply@") &&
+      isSameDomainEmail(e, domain) &&
+      !looksLikePersonalName(e.split("@")[0]),
   );
-  if (all.length) {
-    out.email =
-      all.find((e) => e.endsWith(`@${domain}`)) ||
-      all.find((e) => /^(info|contact|hello|sales|office|enquiries|bookings)@/.test(e)) ||
-      all[0];
-  }
-  const tel = html.match(/tel:(\+?[0-9\s()-]{7,20})/i);
+  if (all.length) out.email = preferRoleEmail(all);
+  const tel = visible.match(/tel:(\+?[0-9\s()-]{7,20})/i);
   if (tel) out.phone = tel[1].trim();
   return out;
 }
@@ -529,17 +587,30 @@ export function extractContacts(html: string, domain: string): { email?: string;
 // Structured data (schema.org JSON-LD) that a business publishes on its
 // OWN website is the highest-trust contact source: the business maintains
 // it for search engines. Extract email / telephone / address from any
-// Organization-like node, including @graph wrappers.
-export function extractJsonLd(html: string): { email?: string; phone?: string; address?: string; name?: string; hours?: string; kind?: string; socials: string[] } {
+// Organization-like node, including @graph wrappers and contactPoint
+// nodes (the schema.org place a business puts its public contact email).
+// When a domain is passed, only same-domain emails are accepted.
+export function extractJsonLd(html: string, domain?: string): { email?: string; phone?: string; address?: string; name?: string; hours?: string; kind?: string; socials: string[] } {
   const out: { email?: string; phone?: string; address?: string; name?: string; hours?: string; kind?: string; socials: string[] } = { socials: [] };
   const blocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
+  const firstStr = (v: unknown): string | undefined =>
+    Array.isArray(v) ? v.find((x): x is string => typeof x === "string") : typeof v === "string" ? v : undefined;
+  const acceptEmail = (raw: string | undefined): void => {
+    if (out.email || !raw) return;
+    const e = raw.replace(/^mailto:/i, "").trim().toLowerCase();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && (!domain || isSameDomainEmail(e, domain))) out.email = e;
+  };
   const visit = (node: unknown): void => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) { node.forEach(visit); return; }
     const o = node as Record<string, unknown>;
     if (Array.isArray(o["@graph"])) o["@graph"].forEach(visit);
+    if (o.contactPoint) {
+      const cps = Array.isArray(o.contactPoint) ? o.contactPoint : [o.contactPoint];
+      cps.forEach(visit);
+    }
     const type = String(o["@type"] || "");
-    if (/organization|localbusiness|store|restaurant|dentist|medical|professionalservice/i.test(type) || o.email || o.telephone) {
+    if (/organization|localbusiness|store|restaurant|dentist|medical|professionalservice|contactpoint/i.test(type) || o.email || o.telephone) {
       if (!out.kind && type) out.kind = type.split(",")[0];
       if (!out.name && typeof o.name === "string" && o.name.trim()) out.name = o.name.trim();
       if (!out.hours && o.openingHours) {
@@ -558,11 +629,11 @@ export function extractJsonLd(html: string): { email?: string; phone?: string; a
           if (parts.length) out.hours = parts.join(", ");
         }
       }
-      if (!out.email && typeof o.email === "string") {
-        const e = o.email.replace(/^mailto:/i, "").trim().toLowerCase();
-        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.email = e;
+      acceptEmail(firstStr(o.email));
+      if (!out.phone) {
+        const t = firstStr(o.telephone);
+        if (t && t.trim().length >= 7) out.phone = t.trim();
       }
-      if (!out.phone && typeof o.telephone === "string" && o.telephone.trim().length >= 7) out.phone = o.telephone.trim();
       if (!out.address && o.address && typeof o.address === "object") {
         const a = o.address as Record<string, unknown>;
         const parts = [a.streetAddress, a.addressLocality, a.addressRegion, a.postalCode, a.addressCountry]
@@ -580,9 +651,11 @@ export function extractJsonLd(html: string): { email?: string; phone?: string; a
       }
     }
   };
+  // Every block is scanned (no early break): contactPoint blocks often
+  // sit after the main Organization block, and a later block may carry
+  // the role inbox the earlier ones lack.
   for (const raw of blocks) {
     try { visit(JSON.parse(raw)); } catch { /* malformed JSON-LD — ignore */ }
-    if (out.email && out.phone && out.address) break;
   }
   return out;
 }
@@ -619,7 +692,7 @@ export function domainOf(website: string): string {
 // level of sitemap-index children), keeps same-origin URLs whose path
 // looks like a contact page. Bounded (<=3 sitemap fetches, <=3 results)
 // and fails open to [] — callers fall back to the static guesses.
-export async function discoverContactPages(origin: string): Promise<string[]> {
+export async function discoverContactPages(origin: string, includeAbout = false): Promise<string[]> {
   const locsOf = (xml: string): string[] => {
     const out: string[] = [];
     for (const m of xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)) {
@@ -628,21 +701,32 @@ export async function discoverContactPages(origin: string): Promise<string[]> {
     }
     return out;
   };
-  const contactish = (u: string): boolean => {
+  const sameOriginPath = (u: string): string | null => {
     try {
       const parsed = new URL(u);
-      if (parsed.origin !== origin) return false;
-      return /contact|get-in-touch|reach-us|talk-to-us/i.test(parsed.pathname);
+      return parsed.origin === origin ? parsed.pathname : null;
     } catch {
-      return false;
+      return null;
     }
   };
+  const contactish = (u: string): boolean => {
+    const p = sameOriginPath(u);
+    return !!p && /contact|get-in-touch|reach-us|talk-to-us/i.test(p);
+  };
+  // About/support pages often carry the same role inbox as the contact
+  // page (footer blocks are shared). Only used by the one-click reader;
+  // the search enrichment keeps the contact-only default.
+  const aboutish = (u: string): boolean => {
+    const p = sameOriginPath(u);
+    return !!p && /about|support/i.test(p);
+  };
+  const wanted = (u: string): boolean => contactish(u) || (includeAbout && aboutish(u));
   try {
     const first = await safeFetch(`${origin}/sitemap.xml`);
     if (first.status < 200 || first.status >= 400) return [];
     let locs = locsOf(first.text);
     const children = locs.filter((u) => /\.xml($|\?)/i.test(u)).slice(0, 2);
-    if (!locs.some((u) => contactish(u)) && children.length) {
+    if (!locs.some(wanted) && children.length) {
       for (const child of children) {
         try {
           const sub = await safeFetch(child);
@@ -650,7 +734,9 @@ export async function discoverContactPages(origin: string): Promise<string[]> {
         } catch { /* skip a dead child sitemap */ }
       }
     }
-    return [...new Set(locs.filter(contactish))].slice(0, 3);
+    const contact = locs.filter(contactish);
+    const about = includeAbout ? locs.filter((u) => !contactish(u) && aboutish(u)) : [];
+    return [...new Set([...contact, ...about])].slice(0, 3);
   } catch {
     return [];
   }
@@ -983,7 +1069,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
             e.websiteAlive = true;
             pagesRead += 1;
             if (pi === 0) { try { homeOrigin = new URL(page.finalUrl || base).origin; } catch { /* keep base */ } }
-            const ld = extractJsonLd(page.text);
+            const ld = extractJsonLd(page.text, domain);
             if (ld.email || ld.phone) e.structured = true;
             const found = extractContacts(page.text, domain);
             e.email = e.email || ld.email || found.email;
