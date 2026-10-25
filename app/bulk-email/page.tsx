@@ -81,7 +81,7 @@ export default function BulkEmail() {
   const [message, setMessage] = useState("");
   const [paste, setPaste] = useState("");
   const [extracted, setExtracted] = useState<string[]>([]);
-  const [verified, setVerified] = useState<{ valid: string[]; invalid: string[] } | null>(null);
+  const [verified, setVerified] = useState<{ valid: string[]; invalid: string[]; blocked: string[] } | null>(null);
   const [attachments, setAttachments] = useState<{ name: string; content: string; type: string }[]>([]);
   const [attachErr, setAttachErr] = useState("");
   // Auto-drain is opt-in per campaign (default off) and text-only.
@@ -229,16 +229,16 @@ export default function BulkEmail() {
   async function verify() {
     const list = extract(paste);
     setExtracted(list);
-    if (!list.length) { setVerified({ valid: [], invalid: [] }); return; }
+    if (!list.length) { setVerified({ valid: [], invalid: [], blocked: [] }); return; }
     const h = await headers();
     const r = await fetch("/api/email/verify", { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ emails: list }) }).then((x) => x.json()).catch(() => ({}));
-    if (r.ok) setVerified({ valid: r.data.valid as string[], invalid: r.data.invalid as string[] });
+    if (r.ok) setVerified({ valid: r.data.valid as string[], invalid: r.data.invalid as string[], blocked: (r.data.blocked as string[] | undefined) ?? [] });
   }
 
   // Download ONLY the verified-valid set, generated client-side from the
-  // list Filter & verify already computed. Dead, duplicate, malformed and
-  // not-checked addresses are never in the file. No new API route, no new
-  // server storage of the list.
+  // list Filter & verify already computed. Dead, blocked, duplicate,
+  // malformed and not-checked addresses are never in the file. No new
+  // API route, no new server storage of the list.
   function downloadVerified(format: "csv" | "txt") {
     const list = verified?.valid ?? [];
     if (!list.length) return;
@@ -330,13 +330,16 @@ export default function BulkEmail() {
 
   // Bucket breakdown for the recipients summary. Every found address lands
   // in exactly one bucket, so the buckets always sum to the found total:
-  // valid + dead + shapeDropped + notChecked = extracted.length, where
-  // notChecked is the remainder over the server's 200-per-check cap
-  // (it verifies at most 200 per call). Duplicates/malformed tokens never
-  // entered "found", so they are reported separately.
+  // valid + dead + blocked + shapeDropped + notChecked = extracted.length,
+  // where notChecked is the remainder over the server's 200-per-check cap
+  // (it verifies at most 200 per call). Blocked takes precedence over the
+  // MX result for checked addresses, so a blocked address is never Valid;
+  // shape-failed and over-cap addresses keep their existing buckets (the
+  // server only checks the first 200 shape-passing addresses). Duplicates/
+  // malformed tokens never entered "found", so they are reported separately.
   const dropStats = extracted.length > 0 ? pasteStats(paste) : { duplicates: 0, malformed: 0 };
   const shapeDropped = verified ? extracted.filter((e) => !serverShapeOk(e)).length : 0;
-  const notChecked = verified ? Math.max(0, extracted.length - verified.valid.length - verified.invalid.length - shapeDropped) : 0;
+  const notChecked = verified ? Math.max(0, extracted.length - verified.valid.length - verified.invalid.length - verified.blocked.length - shapeDropped) : 0;
 
   return (
     <main className="mx-auto w-full max-w-[900px] px-4 py-6 sm:py-10">
@@ -445,6 +448,7 @@ export default function BulkEmail() {
               <>
                 <p>Valid (mail server exists): {verified.valid.length}</p>
                 <p>Dead (no mail server): {verified.invalid.length}</p>
+                {verified.blocked.length > 0 && <p>Blocked (blocked via unsubscribe — can never be mailed): {verified.blocked.length}</p>}
                 {shapeDropped > 0 && <p>Not checked (failed the server&apos;s stricter shape check): {shapeDropped}</p>}
                 {notChecked > 0 && <p>Not checked (over the 200-per-check limit — check the rest in a smaller batch, or send only the verified set): {notChecked}</p>}
               </>
