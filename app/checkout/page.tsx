@@ -7,6 +7,28 @@ declare global { interface Window { Razorpay?: new (opts: Record<string, unknown
 
 type Methods = { lemon: boolean; paddle: boolean; binance: boolean; razorpay: boolean; stripe: boolean; manual: boolean; country: string | null };
 type Region = "NP" | "INTL";
+type Gateway = "lemon" | "paddle" | "binance" | "razorpay" | "stripe";
+
+// EU member states (ISO 3166-1 alpha-2), for the card-first bucket.
+const EU_COUNTRIES = new Set(["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"]);
+
+// Per-country LEADING order for the checkout page, applied client-side
+// to the server's methods response. This only reorders — it never
+// invents an option: the caller filters the result to gateways whose
+// methods boolean is true, so an unconfigured gateway is never shown.
+//   IN → Razorpay first (local method), then card/crypto fallbacks.
+//   US/GB/CA/AU/EU + other card countries → Lemon/Paddle card first.
+//   NP → manual leads (handled by rendering order, not this list);
+//     card fallbacks below the manual section use the default order.
+//   Anywhere else, and country null (no edge header) → Lemon/Paddle/
+//     Binance order (the INTL default).
+function gatewayOrder(country: string | null): Gateway[] {
+  if (country === "IN") return ["razorpay", "lemon", "paddle", "stripe", "binance"];
+  if (country && (country === "US" || country === "GB" || country === "CA" || country === "AU" || EU_COUNTRIES.has(country))) {
+    return ["lemon", "paddle", "stripe", "binance", "razorpay"];
+  }
+  return ["lemon", "paddle", "binance", "stripe", "razorpay"];
+}
 
 export default function Checkout() {
   const [msg, setMsg] = useState("");
@@ -146,6 +168,27 @@ export default function Checkout() {
     finally { setBusy(false); }
   }
 
+  // Ordered, configured-only card gateways for this visitor. The first
+  // one leads (primary button); the rest follow as secondary buttons.
+  // An unconfigured gateway is filtered out here and never rendered.
+  const gatewayActions: Record<Gateway, { label: string; action: () => void }> = {
+    lemon: { label: "Pay worldwide — Card / PayPal / Apple Pay", action: payLemon },
+    paddle: { label: "Pay with Paddle — cards worldwide", action: payPaddle },
+    binance: { label: "Pay with Binance — 19 USDT (crypto)", action: payBinance },
+    razorpay: { label: "Pay with Razorpay (India)", action: () => pay("razorpay") },
+    stripe: { label: "Pay with Stripe", action: () => pay("stripe") },
+  };
+  const orderedGateways: Gateway[] = methods ? gatewayOrder(methods.country).filter((gw) => methods[gw]) : [];
+  const hasCardGateway = orderedGateways.length > 0;
+  function gatewayButton(gw: Gateway, primary: boolean, labelOverride?: string) {
+    const g = gatewayActions[gw];
+    return (
+      <button key={gw} disabled={busy} onClick={g.action} className={primary ? "btn-cta btn-block" : "btn-ghost btn-block"}>
+        {labelOverride || g.label}
+      </button>
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-md px-4 py-10 sm:py-14">
       <h1 className="text-3xl font-bold text-fg">Upgrade to LeadsForceGen Pro</h1>
@@ -165,17 +208,17 @@ export default function Checkout() {
       {region === "INTL" ? (
         <div className="mt-6 space-y-3">
           {methods === null && <p className="text-sm text-muted" role="status">Loading payment options…</p>}
-          {methods?.lemon && <button disabled={busy} onClick={payLemon} className="btn-cta btn-block">Pay worldwide — Card / PayPal / Apple Pay</button>}
-          {methods?.paddle && <button disabled={busy} onClick={payPaddle} className="btn-ghost btn-block">Pay with Paddle — cards worldwide</button>}
-          {methods?.binance && <button disabled={busy} onClick={payBinance} className="btn-ghost btn-block">Pay with Binance — 19 USDT (crypto)</button>}
+          {/* Country-led order: only configured gateways render, the
+              first one as the primary button. E.g. IN leads with
+              Razorpay, US/GB/EU/CA/AU lead with Lemon/Paddle, everywhere
+              else (and country null) leads with Lemon/Paddle/Binance. */}
+          {orderedGateways.map((gw, i) => gatewayButton(gw, i === 0))}
           {binanceReturn && (
             <button disabled={busy} onClick={verifyBinance} className="btn-cta btn-block">I&rsquo;ve paid in Binance — verify &amp; activate Pro</button>
           )}
-          {methods?.razorpay && <button disabled={busy} onClick={() => pay("razorpay")} className="btn-ghost btn-block">Pay with Razorpay (India)</button>}
-          {methods?.stripe && <button disabled={busy} onClick={() => pay("stripe")} className="btn-ghost btn-block">Pay with Stripe</button>}
-          {methods && !methods.lemon && !methods.paddle && !methods.binance && !methods.razorpay && !methods.stripe && (
+          {methods && !hasCardGateway && (
             <p className="text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="status">
-              Online card payments are opening very shortly — we are connecting them now. Please check back soon.
+              Card payments are not connected yet. Please check back soon.
             </p>
           )}
           {methods?.manual && (
@@ -185,15 +228,30 @@ export default function Checkout() {
             </p>
           )}
         </div>
-      ) : (
-        <div className="mt-2">
-          {methods?.lemon && (
-            <button disabled={busy} onClick={payLemon} className="btn-ghost btn-block mt-4">Or pay by card in USD ($19) — Card / PayPal / Apple Pay</button>
+      ) : null}
+      {msg && <p className="mt-4 text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="alert">{msg}</p>}
+      {/* NP leads with manual (eSewa/Khalti) — the manual section renders
+          first, card options (if any are configured) follow below it.
+          If no card gateway is configured, a plain note says so above
+          the manual section instead of implying a card option works. */}
+      {region === "NP" && (
+        <div>
+          {methods && !hasCardGateway && (
+            <p className="mt-6 text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="status">
+              Card payments are not connected yet — you can still pay manually below.
+            </p>
+          )}
+          <ManualPayment />
+          {hasCardGateway && (
+            <div className="mt-6 space-y-3">
+              {orderedGateways.map((gw) => gatewayButton(gw, false, gw === "lemon" ? "Or pay by card in USD ($19) — Card / PayPal / Apple Pay" : undefined))}
+              {binanceReturn && (
+                <button disabled={busy} onClick={verifyBinance} className="btn-cta btn-block">I&rsquo;ve paid in Binance — verify &amp; activate Pro</button>
+              )}
+            </div>
           )}
         </div>
       )}
-      {msg && <p className="mt-4 text-sm text-warning bg-warning-bg border border-warning rounded-[var(--radius)] p-3" role="alert">{msg}</p>}
-      {region === "NP" && <ManualPayment />}
       <p className="text-xs text-muted mt-4">Secure by design: prices are set on the server, payments are signature-verified on the server, and duplicate payments / replayed webhooks are automatically skipped — a browser success message alone can never activate Pro.</p>
       <Link href="/dashboard" className="mt-6 flex items-center justify-center gap-1.5 text-center text-sm font-semibold text-accent-text underline">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
