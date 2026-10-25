@@ -16,6 +16,10 @@ type Info = {
 // is fixed by the server price map — this form never sends a price.
 export default function ManualPayment() {
   const [info, setInfo] = useState<Info | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
+  // Bank details are never in the initial render: the buyer must be
+  // signed in AND click to reveal them (see manual-info route).
+  const [revealed, setRevealed] = useState(false);
   const [method, setMethod] = useState("esewa");
   const [months, setMonths] = useState("1");
   const [file, setFile] = useState<File | null>(null);
@@ -45,10 +49,20 @@ export default function ManualPayment() {
   }
 
   useEffect(() => {
-    fetch("/api/payments/manual-info")
-      .then((r) => r.json())
-      .then((d) => setInfo(d.data || null))
-      .catch(() => setInfo(null));
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+        const token = data.session?.access_token;
+        if (!token) { if (alive) setNeedsLogin(true); return; }
+        const r = await fetch("/api/payments/manual-info", { headers: { Authorization: `Bearer ${token}` } });
+        const d = await r.json().catch(() => ({}));
+        if (!alive) return;
+        if (r.status === 401) { setNeedsLogin(true); return; }
+        setInfo(d.data || null);
+      } catch { if (alive) setInfo(null); }
+    })();
+    return () => { alive = false; };
   }, []);
 
   async function submit(e: React.FormEvent) {
@@ -83,6 +97,17 @@ export default function ManualPayment() {
     }
   }
 
+  if (needsLogin) {
+    return (
+      <div className="card mt-8 p-5">
+        <h2 className="font-semibold text-fg">Pay manually — eSewa / Khalti / Bank (Nepal)</h2>
+        <p className="mt-2 text-sm text-muted">
+          Payment details are shown only to signed-in buyers, to keep the owner&rsquo;s bank details out of public pages and search results.{" "}
+          <a className="font-semibold text-accent-text underline" href="/login">Log in</a> to see them.
+        </p>
+      </div>
+    );
+  }
   if (!info) return null;
   const basePrice = info.pricesNpr[months];
   const price = couponPct ? Math.max(1, Math.round(basePrice * (1 - couponPct / 100))) : basePrice;
@@ -96,7 +121,13 @@ export default function ManualPayment() {
         <p className="mt-2 text-sm text-warning">The owner has not published payment receiving details yet. Please check back shortly.</p>
       ) : (
         <>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{info.instructions}</p>
+          {!revealed ? (
+            <button type="button" onClick={() => setRevealed(true)} className="btn-ghost btn-block mt-3">
+              Show payment details
+            </button>
+          ) : (
+            <p className="mt-2 whitespace-pre-wrap text-sm text-muted">{info.instructions}</p>
+          )}
           {method === "esewa" && (
             <div className="mt-4 text-center">
               {/* The owner's own eSewa receive QR, published by him for this checkout. */}
