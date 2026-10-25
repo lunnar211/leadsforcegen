@@ -402,7 +402,9 @@ export default function Dashboard() {
           <p className="text-sm text-muted">Loading your dashboard…</p>
         </div>
       ) : signedOut ? (
-        <GuestOverview />
+        <div className="flex min-h-[70svh] flex-col justify-center">
+          <GuestOverview />
+        </div>
       ) : (
       <>
       {isPro && (

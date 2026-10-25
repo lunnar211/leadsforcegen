@@ -39,7 +39,7 @@ export default function PricingPage() {
       </p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <div className="card card-hover p-6">
+        <div className="card card-hover flex flex-col p-6">
           <h2 className="text-xl font-bold text-fg">Free</h2>
           <p className="mt-2 text-3xl font-extrabold text-fg">$0 <span className="text-base font-medium text-muted">forever</span></p>
           <ul className="mt-4 space-y-2 text-sm text-fg">
@@ -47,10 +47,12 @@ export default function PricingPage() {
               <li key={f} className="flex gap-2"><Check />{f}</li>
             ))}
           </ul>
-          <Link href="/signup" className="btn-ghost btn-block mt-6">Create free account</Link>
+          <div className="mt-auto pt-6">
+            <Link href="/signup" className="btn-ghost btn-block">Create free account</Link>
+          </div>
         </div>
 
-        <div className="card card-hover relative p-6" style={{ borderColor: "var(--cta)", borderWidth: 2 }}>
+        <div className="card card-hover relative flex flex-col p-6" style={{ borderColor: "var(--cta)", borderWidth: 2 }}>
           <span className="absolute -top-3 right-5 rounded-full px-3 py-1 text-xs font-bold text-cta-fg" style={{ background: "var(--cta)" }}>Most popular</span>
           <h2 className="text-xl font-bold text-fg">Pro</h2>
           <p className="mt-2 text-3xl font-extrabold text-fg">$19 <span className="text-base font-medium text-muted">/ month</span></p>
@@ -60,7 +62,9 @@ export default function PricingPage() {
               <li key={f} className="flex gap-2"><Check />{f}</li>
             ))}
           </ul>
-          <Link href="/checkout" className="btn-cta btn-block mt-6">Go Pro</Link>
+          <div className="mt-auto pt-6">
+            <Link href="/checkout" className="btn-cta btn-block">Go Pro</Link>
+          </div>
         </div>
       </div>
 
