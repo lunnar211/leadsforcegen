@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
 import { PLANS, gatewayConfigured, type Gateway } from "@/lib/payments/plans";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { blockedResponse, isIpBlocked, recordAbuseEvent } from "@/lib/ip-blocks";
 
 
 // Creates a payment order / checkout session on the SERVER.
 // The amount/price always comes from the server-side PLANS map (or the
 // Stripe Price ID configured in env) — never from the client request.
 export async function POST(req: Request) {
+  // IP block check FIRST (fail-open until the owner applies
+  // supabase/ip-blocks.sql): generic 403 before any gateway work.
+  // Also rate-limited (30 creations / minute / IP, far above any human
+  // checkout flow): repeated trips count toward a 24h IP block.
+  const ip = clientIp(req);
+  if (await isIpBlocked(ip)) return blockedResponse();
+  if (!(await rateLimit(`create-order:${ip}`, 30, 60_000))) {
+    await recordAbuseEvent(ip, "payment_abuse");
+    return NextResponse.json({ error: "Too many checkout attempts from this connection. Try again later." }, { status: 429 });
+  }
   const body = await req.json().catch(() => ({}));
   const gateway = (body.gateway === "stripe" ? "stripe" : "razorpay") as Gateway;
   const plan = PLANS.pro; // only paid plan in this MVP; ignore any client-sent amount/plan price

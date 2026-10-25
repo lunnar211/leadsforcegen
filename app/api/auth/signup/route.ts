@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isDisposableEmail } from "@/lib/auth/disposable";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { blockedResponse, isIpBlocked, recordAbuseEvent } from "@/lib/ip-blocks";
 import { sendTelegram } from "@/lib/telegram";
 
 /**
@@ -27,6 +28,11 @@ import { sendTelegram } from "@/lib/telegram";
  * — Google accounts are verified by Google, temp-mail can't pass.
  */
 export async function POST(req: Request) {
+  // IP block check FIRST (fail-open until the owner applies
+  // supabase/ip-blocks.sql): a blocked IP gets a generic 403 before
+  // any validation, rate limiting, or account work happens.
+  const ip = clientIp(req);
+  if (await isIpBlocked(ip)) return blockedResponse();
   let body: { email?: unknown; password?: unknown };
   try {
     body = await req.json();
@@ -46,8 +52,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Password must be at most 72 characters." }, { status: 400 });
   }
 
-  const ip = clientIp(req);
   if (!(await rateLimit(`signup:ip:${ip}`, 10, 3_600_000))) {
+    // Signup-abuse signal: only the per-IP limit trip counts toward
+    // an IP block (a per-email trip is about the email, not the IP).
+    // 30 such hits in 24h auto-blocks the IP for 24h (lib/ip-blocks).
+    await recordAbuseEvent(ip, "signup_abuse");
     return NextResponse.json(
       { error: "Too many signup attempts from this connection. Try again later." },
       { status: 429 },

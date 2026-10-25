@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { MANUAL_METHODS, MANUAL_PRICES_NPR } from "@/lib/payments/plans";
 import { reencodeProof } from "@/lib/proof-image";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { blockedResponse, isIpBlocked, recordAbuseEvent } from "@/lib/ip-blocks";
 import { sendTelegram } from "@/lib/telegram";
 
 export const maxDuration = 30;
@@ -51,7 +52,13 @@ function sniffImage(bytes: Uint8Array, ext: string): boolean {
 // admin approves it in /api/admin/payments. Requires a signed-in user so
 // the approval upgrades the right account.
 export async function POST(req: Request) {
-  if (!(await rateLimit(`manual-proof:${clientIp(req)}`, 5, 60_000))) {
+  // IP block check FIRST (fail-open until the owner applies
+  // supabase/ip-blocks.sql): generic 403 before rate limit, auth,
+  // or any file handling.
+  const ip = clientIp(req);
+  if (await isIpBlocked(ip)) return blockedResponse();
+  if (!(await rateLimit(`manual-proof:${ip}`, 5, 60_000))) {
+    await recordAbuseEvent(ip, "fake_payment");
     return NextResponse.json({ ok: false, error: "Too many submissions. Try again in a minute." }, { status: 429 });
   }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -123,6 +130,9 @@ export async function POST(req: Request) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   // Content check before anything is stored (S1).
   if (!sniffImage(bytes, ext)) {
+    // Fake-payment signal: a non-image file offered as payment proof.
+    // One corrupt upload is harmless — 30 such signals in 24h blocks.
+    await recordAbuseEvent(ip, "fake_payment");
     return NextResponse.json({ ok: false, error: "That file is not a real PNG, JPG, or WebP image." }, { status: 400 });
   }
   // Malware hardening: decode to pixels and store a brand-new JPEG —
@@ -135,6 +145,7 @@ export async function POST(req: Request) {
   try {
     clean = await reencodeProof(bytes);
   } catch {
+    await recordAbuseEvent(ip, "fake_payment");
     return NextResponse.json({ ok: false, error: "That image could not be read. Please upload a clear PNG, JPG, or WebP screenshot." }, { status: 400 });
   }
   const path = `${userData.user.id}/${proofId}.jpg`;

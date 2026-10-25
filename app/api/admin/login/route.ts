@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ADMIN_COOKIE, createAdminSessionToken, isAdminConfigured, verifyAdminCredentials } from "@/lib/adminAuth";
-import { counterGet, counterIncr, counterReset } from "@/lib/rate-limit";
+import { counterGet, counterIncr, counterReset, clientIp } from "@/lib/rate-limit";
+import { blockedResponse, isIpBlocked, recordAbuseEvent } from "@/lib/ip-blocks";
 import { serviceClient } from "@/lib/quota";
 
 // Lockout policy: 5 FAILED attempts per EMAIL within 15 minutes locks
@@ -31,6 +32,14 @@ const MAX_FAILURES = 5;
 const LOCKOUT_MS = 15 * 60_000;
 
 export async function POST(req: Request) {
+  // IP block check FIRST (fail-open until the owner applies
+  // supabase/ip-blocks.sql): generic 403 before the config check,
+  // the per-email lockout, or any credential verification. Other
+  // admin routes stay guarded by the signed admin cookie; this login
+  // route is the entry point where failed-attempt abuse happens, so
+  // it is where the IP block is enforced.
+  const ip = clientIp(req);
+  if (await isIpBlocked(ip)) return blockedResponse();
   if (!isAdminConfigured()) {
     return NextResponse.json(
       { ok: false, error: "Admin login is not configured on the server yet." },
@@ -58,6 +67,12 @@ export async function POST(req: Request) {
     );
   }
   if (!email || !body.password || !verifyAdminCredentials(email, body.password)) {
+    // Failed-admin-attempt signal for IP blocking. The per-email
+    // lockout above stays the primary defence (5 / 15 min); the IP
+    // threshold is far higher (50 failures / 24h, see lib/ip-blocks)
+    // because client IPs vary between requests, so only sustained
+    // credential-stuffing volume across many emails trips it.
+    await recordAbuseEvent(ip, "admin_failure");
     if (admin) {
       try {
         const { data, error } = await admin.from("admin_login_failures").select("failures").eq("key", failKey).limit(1);
