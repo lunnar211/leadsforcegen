@@ -20,8 +20,13 @@ alter table if exists payments add column if not exists months int;
 alter table if exists payments add column if not exists proof_path text;
 -- 2026-10-24 security fixes: SHA-256 of the uploaded proof file, used to
 -- reject duplicate pending proofs from the same user (sweep finding P1).
+-- NOTE: the proof_hash INDEX lives AFTER the payments CREATE TABLE
+-- below, not here: this header runs before payments is created, so a
+-- CREATE INDEX here would error on a fresh database (missing table).
+-- The ALTER above is table-guarded (IF EXISTS) so it is harmless here
+-- and still backfills existing databases; the post-CREATE copy below
+-- is what guarantees a fresh database gets the column + index.
 alter table if exists payments add column if not exists proof_hash text;
-create index if not exists idx_payments_proof_hash on payments (user_id, proof_hash, status);
 
 -- 2026-10-24 security fixes: durable admin-login failure counters.
 -- The old counters lived in Upstash (unconfigured) or per-instance
@@ -35,17 +40,25 @@ create table if not exists admin_login_failures (
   updated_at timestamptz not null default now()
 );
 alter table admin_login_failures enable row level security;
--- Paddle added as a gateway (2026-10-23): widen the gateway CHECK on
--- databases created before Paddle existed.
+-- Paddle added as a gateway (2026-10-23), Binance Pay added 2026-10-25
+-- (supabase/binance-pay.sql, applied live): widen the gateway CHECK on
+-- databases created before those gateways existed.
+-- AUDIT FIX 2026-10-25: the DO block below previously re-added this
+-- CHECK WITHOUT 'paddle'/'binance', so re-running this file on the live
+-- database would have stripped both gateways — and failed outright if
+-- paddle/binance rows already existed (CHECK validation on ADD).
+-- The gateway set here must always stay a superset of every gateway
+-- the code inserts (razorpay, stripe, manual, lemonsqueezy, paddle,
+-- binance); binance-pay.sql re-adds exactly this same set.
 alter table if exists payments drop constraint if exists payments_gateway_check;
-alter table if exists payments add constraint payments_gateway_check check (gateway in ('razorpay','stripe','manual','lemonsqueezy','paddle'));
+alter table if exists payments add constraint payments_gateway_check check (gateway in ('razorpay','stripe','manual','lemonsqueezy','paddle','binance'));
 
 do $$
 begin
-  if exists (select 1 from pg_constraint where conname = 'payments_gateway_check') then
+  if exists (select 1 from pg_constraint where conname = 'payments_gateway_check' and conrelid = 'public.payments'::regclass) then
     alter table payments drop constraint payments_gateway_check;
     alter table payments add constraint payments_gateway_check
-      check (gateway in ('razorpay','stripe','manual','lemonsqueezy'));
+      check (gateway in ('razorpay','stripe','manual','lemonsqueezy','paddle','binance'));
   end if;
   if exists (select 1 from pg_constraint where conname = 'payments_status_check') then
     alter table payments drop constraint payments_status_check;
@@ -103,7 +116,7 @@ create table if not exists payments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references profiles(id) on delete set null,
   email text,
-  gateway text not null check (gateway in ('razorpay','stripe','manual','lemonsqueezy','paddle')),
+  gateway text not null check (gateway in ('razorpay','stripe','manual','lemonsqueezy','paddle','binance')),
   gateway_payment_id text unique,
   gateway_order_id text unique,
   plan text not null default 'pro',
@@ -115,6 +128,14 @@ create table if not exists payments (
   proof_path text,
   created_at timestamptz not null default now()
 );
+
+-- proof_hash backfill for FRESH databases (see header note): the
+-- header ALTER is skipped when payments does not exist yet, so without
+-- this a fresh database would lack the column the manual-proof route
+-- tries first, and would have no dedupe index. On existing databases
+-- both statements are no-ops (column exists, index exists).
+alter table if exists payments add column if not exists proof_hash text;
+create index if not exists idx_payments_proof_hash on payments (user_id, proof_hash, status);
 
 -- Private bucket for manual-payment proof images (service-role access only).
 insert into storage.buckets (id, name, public)
