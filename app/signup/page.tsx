@@ -9,7 +9,8 @@ import GoogleAuthButton from "@/components/GoogleAuthButton";
 export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [errors, setErrors] = useState<{ email?: string; password?: string; age?: string }>({});
   const [msg, setMsg] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -33,6 +34,7 @@ export default function Signup() {
     if (!email.trim()) next.email = "Enter your email address.";
     if (!password) next.password = "Choose a password.";
     else if (password.length < 6) next.password = "Password must be at least 6 characters.";
+    if (!ageConfirmed) next.age = "You must confirm you are 18 or older to create an account.";
     setErrors(next);
     if (Object.keys(next).length) return;
     if (!supabase) {
@@ -47,7 +49,7 @@ export default function Signup() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: email.trim(), password, ageConfirmed }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -123,6 +125,17 @@ export default function Signup() {
               ? <p className="field-error" id="signup-password-error" role="alert">{errors.password}</p>
               : <p className="mt-1.5 text-xs text-muted" id="signup-password-hint">At least 6 characters.</p>}
           </div>
+          <div>
+            <label className="flex cursor-pointer items-start gap-2.5 text-sm text-muted">
+              <input
+                id="signup-age" type="checkbox" className="mt-0.5 shrink-0 accent-[var(--accent)]"
+                checked={ageConfirmed} onChange={(e) => setAgeConfirmed(e.target.checked)}
+                aria-invalid={Boolean(errors.age)} aria-describedby={errors.age ? "signup-age-error" : undefined}
+              />
+              <span>I confirm I am 18 years of age or older. (Required — see <Link className="font-semibold text-accent-text underline" href="/terms">Terms</Link>.)</span>
+            </label>
+            {errors.age && <p className="field-error mt-1.5" id="signup-age-error" role="alert">{errors.age}</p>}
+          </div>
           {msg && <p className="rounded-[var(--radius)] bg-danger-bg p-3 text-sm text-danger" role="alert">{msg}</p>}
           <button type="submit" className="btn-primary btn-block" disabled={busy}>
             {busy && <span className="spinner" aria-hidden="true" />}
@@ -131,7 +144,7 @@ export default function Signup() {
         </form>
       )}
 
-      <GoogleAuthButton />
+      <GoogleAuthButton disabled={!ageConfirmed} />
       <p className="mt-5 text-center text-sm text-muted">
         Already have an account? <Link className="font-semibold text-accent-text underline" href="/login">Login</Link>
       </p>

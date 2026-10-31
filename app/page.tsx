@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Reveal from "@/components/Reveal";
+import AdSense from "@/components/AdSense";
 
 // Landing page v2 (2026-10-23) — "designed, not vibe-coded":
 // product visual in the hero (real leads from the live database),
@@ -223,6 +224,9 @@ export default function Home() {
         <p className="mx-auto mt-12 max-w-2xl text-center text-xs leading-relaxed text-muted">
           Leads are company-level prospects from public business data. Every lead shows its source so you can verify it before outreach. LeadsForceGen never sells personal phone numbers or personal emails, and never scrapes social media or Google.
         </p>
+
+        {/* AdSense: renders nothing until NEXT_PUBLIC_ADSENSE_PUBLISHER_ID is set (see components/AdSense.tsx). */}
+        <AdSense />
       </div>
     </div>
   );

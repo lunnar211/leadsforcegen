@@ -22,10 +22,16 @@ import { sendTelegram } from "@/lib/telegram";
  *      bot farm can't mass-create accounts even with real domains.
  *   3. Disposable-domain block: 9,927 known temp-mail domains
  *      (community blocklist snapshot) — exact domain or subdomain.
+ *   4. Age confirmation: the signup form sends ageConfirmed=true
+ *      (the "I am 18 or older" checkbox); the route rejects the
+ *      request without it, because a browser-side check alone is
+ *      bypassable. This matches the Terms eligibility rule.
  * The account is created pre-confirmed (email confirmation is OFF by
  * design); the browser then signs in with the same password to get
  * its session, exactly as before. Google OAuth signups are untouched
- * — Google accounts are verified by Google, temp-mail can't pass.
+ * — Google accounts are verified by Google, temp-mail can't pass;
+ * the Google button on the signup page is gated by the same
+ * checkbox in the UI.
  */
 export async function POST(req: Request) {
   // IP block check FIRST (fail-open until the owner applies
@@ -33,7 +39,7 @@ export async function POST(req: Request) {
   // any validation, rate limiting, or account work happens.
   const ip = clientIp(req);
   if (await isIpBlocked(ip)) return blockedResponse();
-  let body: { email?: unknown; password?: unknown };
+  let body: { email?: unknown; password?: unknown; ageConfirmed?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -41,6 +47,13 @@ export async function POST(req: Request) {
   }
   const email = typeof body.email === "string" ? body.email.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
+
+  if (body.ageConfirmed !== true) {
+    return NextResponse.json(
+      { error: "You must confirm you are 18 or older to create an account." },
+      { status: 400 },
+    );
+  }
 
   if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email)) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
