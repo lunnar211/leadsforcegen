@@ -10,7 +10,11 @@ export function GET() {
   if (!publisher) {
     return new NextResponse("AdSense not configured.", { status: 404 });
   }
-  return new NextResponse(`google.com, ${publisher}, DIRECT, f08c47fec0942fa\n`, {
+  // ads.txt uses the bare pub- form; the AdSense script tag uses the
+  // ca-pub- form. The env var stores the ca-pub- form (as shown in
+  // the AdSense dashboard), so strip the ca- prefix here only.
+  const adsTxtId = publisher.replace(/^ca-/, "");
+  return new NextResponse(`google.com, ${adsTxtId}, DIRECT, f08c47fec0942fa\n`, {
     headers: { "content-type": "text/plain" },
   });
 }
