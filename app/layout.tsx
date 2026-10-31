@@ -116,6 +116,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <nav aria-label="Legal">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Legal</p>
               <ul className="mt-3 space-y-2 text-sm">
+                <li><a className="text-muted hover:text-fg" href="/about">About</a></li>
                 <li><a className="text-muted hover:text-fg" href="/privacy">Privacy</a></li>
                 <li><a className="text-muted hover:text-fg" href="/terms">Terms</a></li>
                 <li><a className="text-muted hover:text-fg" href="/unsubscribe">Remove a business</a></li>
