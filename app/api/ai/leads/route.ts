@@ -3,6 +3,7 @@ import { type Lead } from "@/lib/types";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { consumeQuota, getAuthUser, getUsage, quotaConfigured } from "@/lib/quota";
 import { normalizeNiche, searchEverywhere, type EngineResult } from "@/lib/engine/search";
+import { geminiGenerate, generateAiLeads, groqGenerate } from "@/lib/engine/ai-providers";
 import { filterBlocked, getBlocklist } from "@/lib/engine/blocklist";
 import { cacheGet, cacheSet } from "@/lib/cache";
 
@@ -13,21 +14,6 @@ function quotaExceededMsg(limit: number, plan: string): string {
   return `Daily limit reached (${limit} leads on the ${plan} plan). Upgrade to Pro for more.`;
 }
 
-
-async function groqLeads(body: Record<string, string>): Promise<Lead[] | null> {
-  const text = await groqGenerate(
-    `You generate company-level B2B prospect ideas as JSON. Never invent personal phone numbers or personal email addresses of real people. Only return company/business names, industry, location, approximate size, a plausible public website domain placeholder if unknown, a short description, and a fit score 0-100. ${LEAD_SCHEMA_HINT}\nGenerate 10 company prospects. Lead type: ${body.leadType || "B2B companies"}. Industry: ${body.industry || "Any"}. Location: ${body.location || "Any"}. Company size: ${body.size || "Any"}. Keywords: ${body.keywords || "none"}.`,
-    12000,
-  );
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed.leads)) return null;
-    return mapAiLeads(parsed.leads, body);
-  } catch {
-    return null;
-  }
-}
 
 const LEAD_SCHEMA_HINT = "Return JSON: {\"leads\":[{company,industry,location,size,website,description,score}]}";
 
@@ -43,71 +29,28 @@ function mapAiLeads(raw: Record<string, unknown>[], body: Record<string, string>
   }));
 }
 
-// Gemini — second AI source (when Groq is down/missing) and the default
-// filter brain. Same honesty rules as Groq: company-level prospects only,
-// never invented personal contacts. GEMINI_API_URL override exists so the
-// integration can be tested against a local mock.
-async function geminiGenerate(prompt: string, timeoutMs: number): Promise<string | null> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-  const url = process.env.GEMINI_API_URL || `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      signal: AbortSignal.timeout(timeoutMs),
-      headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const parts = data?.candidates?.[0]?.content?.parts;
-    if (!Array.isArray(parts)) return null;
-    return parts.map((p: { text?: string }) => p.text || "").join("");
-  } catch {
-    return null;
-  }
-}
-
-async function geminiLeads(body: Record<string, string>): Promise<Lead[] | null> {
-  const text = await geminiGenerate(
+// AI leads through the ordered provider chain (Groq -> Gemini ->
+// OpenRouter, see lib/engine/ai-providers). Same honesty rules for all
+// three: company-level prospects only, never invented personal
+// contacts. With no OPENROUTER_API_KEY set, the OpenRouter step
+// returns null and the chain behaves exactly as it did before
+// OpenRouter existed.
+async function aiLeads(body: Record<string, string>): Promise<{ leads: Lead[]; source: string } | null> {
+  const gen = await generateAiLeads(
     `You generate company-level B2B prospect ideas as JSON. Never invent personal phone numbers or personal email addresses of real people. Only return company/business names, industry, location, approximate size, a plausible public website domain placeholder if unknown, a short description, and a fit score 0-100. ${LEAD_SCHEMA_HINT}\nGenerate 10 company prospects. Lead type: ${body.leadType || "B2B companies"}. Industry: ${body.industry || "Any"}. Location: ${body.location || "Any"}. Company size: ${body.size || "Any"}. Keywords: ${body.keywords || "none"}.`,
     12000,
+    (text) => {
+      try {
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed.leads)) return null;
+        return mapAiLeads(parsed.leads, body);
+      } catch {
+        return null;
+      }
+    },
   );
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed.leads)) return null;
-    return mapAiLeads(parsed.leads, body);
-  } catch {
-    return null;
-  }
-}
-
-async function groqGenerate(prompt: string, timeoutMs: number): Promise<string | null> {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) return null;
-  const model = process.env.AI_MODEL || "openai/gpt-oss-20b";
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      signal: AbortSignal.timeout(timeoutMs),
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content || null;
-  } catch {
-    return null;
-  }
+  if (!gen) return null;
+  return { leads: gen.result, source: gen.provider };
 }
 
 // AI FILTER (Gemini first, Groq as backup): re-checks AI-GENERATED leads
@@ -200,7 +143,7 @@ async function handlePost(req: Request) {
 
   // Source order: (1) Search Everywhere engine — real businesses from
   // public sources with published contacts; (2) Groq AI prospects;
-  // (3) Gemini AI prospects. AI prospects are relevance-filtered by the
+  // (3) Gemini AI prospects; (4) OpenRouter AI prospects. AI prospects are relevance-filtered by the
   // other AI. If no real source produces leads the answer is an honest
   // empty result — never demo/sample data dressed up as results (that
   // fallback was removed 2026-10-23, once the stored database went live).
@@ -274,31 +217,26 @@ async function handlePost(req: Request) {
     return NextResponse.json({ leads: engine.leads, source: "search-everywhere", note });
   }
 
-  // AI chain: Groq first, Gemini second. AI leads then go through the
-  // AI filter (Gemini, Groq backup) which drops off-topic results and
-  // re-scores the rest — it never adds data.
+  // AI chain: Groq first, Gemini second, OpenRouter third. AI leads
+  // then go through the AI filter (Gemini, Groq backup) which drops
+  // off-topic results and re-scores the rest — it never adds data.
   // WALL CLOCK (2026-10-25): this chain's worst case is 44s (Groq 12s
-  // + Gemini 12s + filter up to 20s). A 52s race cap plus ANY server
-  // wake-up time plus response assembly mathematically exceeds the
-  // 60s serverless limit on cold instances — the restaurants/London
-  // 504s. Race the whole chain against the time left until 44s from
-  // function start (exactly the chain's own worst case, so no chain
-  // that could have succeeded is cut short); on timeout, fall
-  // through to the honest-empty result. A fast honest answer always
-  // beats a killed request.
+  // + Gemini 12s + filter up to 20s). The OpenRouter step shares the
+  // same 44s race budget below (it runs only on the time left after
+  // Groq and Gemini fail, and the race cap itself is unchanged), so
+  // the 60s serverless limit still holds — a slow chain still falls
+  // through to the honest-empty result instead of a killed request.
+  // A fast honest answer always beats a killed request.
   const aiBudget = 44_000 - (Date.now() - t0);
   let aiResult: { leads: Lead[]; source: string; note: string } | null = null;
   if (aiBudget > 3000) {
     try {
       aiResult = await Promise.race([
         (async () => {
-          let ai = await groqLeads(body);
-          let aiSource = "groq";
-          if (!ai) {
-            ai = await geminiLeads(body);
-            aiSource = "gemini";
-          }
-          if (!ai) return null;
+          const gen = await aiLeads(body);
+          if (!gen) return null;
+          const ai = gen.leads;
+          const aiSource = gen.source;
           const filtered = await aiFilter(ai, niche, where);
           return {
             leads: filterBlocked(filtered.leads, blocklist),
