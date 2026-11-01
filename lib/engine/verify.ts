@@ -26,7 +26,7 @@ export async function aiVerifyLeads<T extends ScoredLeadLike>(
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: process.env.AI_MODEL || "llama-3.3-70b-versatile",
+        model: process.env.AI_MODEL || "openai/gpt-oss-20b",
         temperature: 0,
         messages: [{ role: "user", content: prompt }],
       }),

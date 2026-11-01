@@ -50,7 +50,7 @@ function mapAiLeads(raw: Record<string, unknown>[], body: Record<string, string>
 async function geminiGenerate(prompt: string, timeoutMs: number): Promise<string | null> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
-  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const url = process.env.GEMINI_API_URL || `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   try {
     const res = await fetch(url, {
@@ -90,7 +90,7 @@ async function geminiLeads(body: Record<string, string>): Promise<Lead[] | null>
 async function groqGenerate(prompt: string, timeoutMs: number): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
   if (!key) return null;
-  const model = process.env.AI_MODEL || "llama-3.3-70b-versatile";
+  const model = process.env.AI_MODEL || "openai/gpt-oss-20b";
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",

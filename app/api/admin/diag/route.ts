@@ -79,7 +79,7 @@ export async function GET() {
 
   stages.push(await timed("gemini key", async () => {
     if (!process.env.GEMINI_API_KEY) return "not set";
-    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash", {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash", {
       headers: { "x-goog-api-key": process.env.GEMINI_API_KEY }, signal: AbortSignal.timeout(8000),
     });
     return `HTTP ${res.status}${res.status === 200 ? " (key valid)" : res.status === 400 || res.status === 403 ? " (key REJECTED — revoked or wrong)" : ""}`;
@@ -94,7 +94,7 @@ export async function GET() {
       method: "POST",
       headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: process.env.AI_MODEL || "llama-3.3-70b-versatile",
+        model: process.env.AI_MODEL || "openai/gpt-oss-20b",
         max_tokens: 5,
         messages: [{ role: "user", content: "Say ok" }],
       }),
@@ -106,7 +106,7 @@ export async function GET() {
 
   stages.push(await timed("gemini generate (tiny)", async () => {
     if (!process.env.GEMINI_API_KEY) return "not set";
-    const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+    const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "x-goog-api-key": process.env.GEMINI_API_KEY, "Content-Type": "application/json" },
