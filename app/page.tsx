@@ -225,6 +225,17 @@ export default function Home() {
           Leads are company-level prospects from public business data. Every lead shows its source so you can verify it before outreach. LeadsForceGen never sells personal phone numbers or personal emails, and never scrapes social media or Google.
         </p>
 
+        <div className="card mx-auto mt-12 max-w-2xl p-6 text-center">
+          <h2 className="text-xl font-bold text-fg">LeadsForceGen on Android</h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            The Android app is this website in an app: the same lead search, the same login, the same data. Download the APK, allow install from unknown sources once on your phone, then sign in with your usual account.
+          </p>
+          <Link href="https://github.com/lunnar211/android-apps/releases/latest/download/leadsforcegen-debug.apk" className="btn-cta mt-5">Download for Android (.apk)</Link>
+          <p className="mt-3 text-sm">
+            <Link href="https://github.com/lunnar211/android-apps/releases" className="underline">All Android apps on GitHub</Link>
+          </p>
+        </div>
+
         {/* AdSense: renders nothing until NEXT_PUBLIC_ADSENSE_PUBLISHER_ID is set (see components/AdSense.tsx). */}
         <AdSense />
       </div>
