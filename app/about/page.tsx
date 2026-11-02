@@ -1,10 +1,11 @@
 import Link from "next/link";
+import Reveal from "@/components/Reveal";
 
 export const metadata = { title: "About" };
 
 export default function About() {
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 text-muted">
+    <Reveal className="mx-auto max-w-3xl px-4 py-12 text-muted">
       <h1 className="text-2xl font-bold text-fg">About LeadsForceGen</h1>
       <div className="mt-6 space-y-4 text-sm leading-6">
         <p>
@@ -42,6 +43,6 @@ export default function About() {
           see <Link className="font-semibold text-accent-text underline" href="/pricing">pricing</Link>.
         </p>
       </div>
-    </div>
+    </Reveal>
   );
 }

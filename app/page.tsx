@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Reveal from "@/components/Reveal";
+import { MotionLink } from "@/components/motion/MotionLink";
 import AdSense from "@/components/AdSense";
 
 // Landing page v2 (2026-10-23) — "designed, not vibe-coded":
@@ -132,8 +133,8 @@ export default function Home() {
             Search real companies by industry and city, get the contacts they publish — phone, email, website, socials — scored by AI and ready to export. Free to start, unlimited* on Pro.
           </p>
           <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link href="/signup" className="btn-cta">Start free — no card needed</Link>
-            <Link href="/dashboard" className="btn-ghost">Open the dashboard</Link>
+            <MotionLink href="/signup" className="btn-cta">Start free — no card needed</MotionLink>
+            <MotionLink href="/dashboard" className="btn-ghost">Open the dashboard</MotionLink>
           </div>
           <p className="mt-3 text-xs text-muted">Free: 30 leads/day · Pro: unlimited* leads (fair use)</p>
 
@@ -157,12 +158,14 @@ export default function Home() {
           <Eyebrow>Features</Eyebrow>
           <h2 className="mt-3 text-center text-3xl font-bold tracking-tight text-fg">Everything you need to fill a pipeline</h2>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((f) => (
-              <div key={f.title} className="card card-hover p-6">
-                <span className="inline-flex rounded-xl p-2.5 text-accent-text" style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)" }} aria-hidden="true">{f.icon}</span>
-                <h3 className="mt-4 font-semibold text-fg">{f.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted">{f.text}</p>
-              </div>
+            {features.map((f, i) => (
+              <Reveal key={f.title} delay={i * 0.03} className="h-full">
+                <div className="card card-hover h-full p-6">
+                  <span className="inline-flex rounded-xl p-2.5 text-accent-text" style={{ background: "color-mix(in srgb, var(--accent) 12%, transparent)" }} aria-hidden="true">{f.icon}</span>
+                  <h3 className="mt-4 font-semibold text-fg">{f.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted">{f.text}</p>
+                </div>
+              </Reveal>
             ))}
           </div>
         </Reveal>
@@ -172,16 +175,20 @@ export default function Home() {
           <h2 className="mt-3 text-center text-3xl font-bold tracking-tight text-fg">From search to conversation in minutes</h2>
           <div className="mt-10 grid gap-4 md:grid-cols-3">
             {steps.map(([t, d], i) => (
-              <div key={t} className="card p-6">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-extrabold text-accent-fg" style={{ background: "var(--accent)" }} aria-hidden="true">{i + 1}</span>
-                <h3 className="mt-4 font-semibold text-fg">{t}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted">{d}</p>
-              </div>
+              <Reveal key={t} delay={i * 0.03} className="h-full">
+                <div className="card h-full p-6">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-extrabold text-accent-fg" style={{ background: "var(--accent)" }} aria-hidden="true">{i + 1}</span>
+                  <h3 className="mt-4 font-semibold text-fg">{t}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted">{d}</p>
+                </div>
+              </Reveal>
             ))}
           </div>
         </Reveal>
 
-        <Reveal className="mt-24">
+        {/* Pricing block stays static on purpose: pricing-adjacent
+            content is never animated. */}
+        <div className="mt-24">
           <Eyebrow>Pricing</Eyebrow>
           <h2 className="mt-3 text-center text-3xl font-bold tracking-tight text-fg">Start free. Upgrade when it pays.</h2>
           <div className="mx-auto mt-10 grid max-w-3xl gap-4 md:grid-cols-2">
@@ -211,13 +218,13 @@ export default function Home() {
               <Link href="/checkout" className="btn-cta btn-block mt-7">Upgrade to Pro</Link>
             </div>
           </div>
-        </Reveal>
+        </div>
 
         <Reveal className="mt-24">
           <div className="relative overflow-hidden rounded-3xl bg-slate-900 px-6 py-12 text-center shadow-[var(--shadow-lg)]">
             <h2 className="text-3xl font-extrabold tracking-tight text-white">Your next customer is already in the database.</h2>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-slate-300">Join free, run your first search in under a minute, and see real businesses — not samples.</p>
-            <Link href="/signup" className="btn-cta mt-7">Start free</Link>
+            <MotionLink href="/signup" className="btn-cta mt-7">Start free</MotionLink>
           </div>
         </Reveal>
 
@@ -225,16 +232,16 @@ export default function Home() {
           Leads are company-level prospects from public business data. Every lead shows its source so you can verify it before outreach. LeadsForceGen never sells personal phone numbers or personal emails, and never scrapes social media or Google.
         </p>
 
-        <div className="card mx-auto mt-12 max-w-2xl p-6 text-center">
+        <Reveal className="card mx-auto mt-12 max-w-2xl p-6 text-center">
           <h2 className="text-xl font-bold text-fg">LeadsForceGen on Android</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             The Android app is this website in an app: the same lead search, the same login, the same data. Download the APK, allow install from unknown sources once on your phone, then sign in with your usual account.
           </p>
-          <Link href="https://github.com/lunnar211/android-apps/releases/latest/download/leadsforcegen-debug.apk" className="btn-cta mt-5">Download for Android (.apk)</Link>
+          <MotionLink href="https://github.com/lunnar211/android-apps/releases/latest/download/leadsforcegen-debug.apk" className="btn-cta mt-5">Download for Android (.apk)</MotionLink>
           <p className="mt-3 text-sm">
             <Link href="https://github.com/lunnar211/android-apps/releases" className="underline">All Android apps on GitHub</Link>
           </p>
-        </div>
+        </Reveal>
 
         {/* AdSense: renders nothing until NEXT_PUBLIC_ADSENSE_PUBLISHER_ID is set (see components/AdSense.tsx). */}
         <AdSense />

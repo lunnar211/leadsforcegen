@@ -1,8 +1,10 @@
+import Reveal from "@/components/Reveal";
+
 export const metadata = { title: "Privacy Policy" };
 
 export default function Privacy() {
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 text-muted">
+    <Reveal className="mx-auto max-w-3xl px-4 py-12 text-muted">
       <h1 className="text-2xl font-bold text-fg">Privacy Policy</h1>
       <p className="mt-2 text-xs text-muted">Last updated: 2026-10-22</p>
       <div className="mt-6 space-y-4 text-sm leading-6">
@@ -12,6 +14,6 @@ export default function Privacy() {
         <p><strong className="text-fg">Removal.</strong> Any business can be removed from all future results at any time via the <a className="underline" href="/unsubscribe">unsubscribe page</a>.</p>
         <p><strong className="text-fg">Contact.</strong> The site owner can be reached at dipeshkarki8292@gmail.com for privacy questions and removal requests.</p>
       </div>
-    </div>
+    </Reveal>
   );
 }
