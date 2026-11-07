@@ -71,13 +71,12 @@ export default function CookieConsent() {
       aria-live="polite"
       className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-surface shadow-lg safe-b"
     >
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:gap-6">
-        <p className="flex-1 text-sm leading-relaxed text-muted">
+      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-6 sm:py-4">
+        <p className="flex-1 text-sm leading-snug text-muted">
           <span className="font-bold text-fg">Cookies, your choice. </span>
           We use cookies only to keep you signed in and remember preferences
-          such as your theme. We run no analytics or advertising tracking on
-          this site, and we set no tracking cookie before you choose. You can
-          change this anytime from “Cookie choices” in the footer.
+          like your theme. No analytics or ad tracking — change this anytime
+          from “Cookie choices” in the footer.
         </p>
         <div className="flex shrink-0 gap-2">
           <button type="button" className="btn-primary px-5 py-2 text-sm" onClick={() => choose("accepted")}>

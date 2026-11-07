@@ -493,7 +493,7 @@ export default function Dashboard() {
             <div>
               <label className="label" htmlFor="f-industry">What are you looking for?</label>
               <input
-                id="f-industry" className="input" placeholder="e.g. dentists, software companies, restaurants" value={form.industry} onChange={set("industry")}
+                id="f-industry" className="input" placeholder="e.g. dentists, restaurants" value={form.industry} onChange={set("industry")}
                 autoComplete="off" aria-invalid={Boolean(fieldErrors.industry)}
                 aria-describedby={fieldErrors.industry ? "f-industry-error" : undefined}
               />
@@ -511,7 +511,7 @@ export default function Dashboard() {
               <label className="label" htmlFor="f-area">Exact place / area</label>
               <input
                 id="f-area" className="input" list="area-suggestions"
-                placeholder={country ? `e.g. ${AREAS[country]?.[0] ?? "a city or neighbourhood"}` : "Pick a country first, or type any city or neighbourhood"}
+                placeholder={country ? `e.g. ${AREAS[country]?.[0] ?? "a city or neighbourhood"}` : "Type any city or neighbourhood"}
                 value={area} onChange={(e) => pickArea(e.target.value)}
                 autoComplete="off" aria-invalid={Boolean(fieldErrors.location)}
                 aria-describedby={fieldErrors.location ? "f-location-error" : undefined}

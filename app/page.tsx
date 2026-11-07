@@ -92,7 +92,7 @@ function DashboardMock() {
                 <p className="truncate text-sm font-semibold text-fg">{l.name}</p>
                 <p className="truncate text-xs text-muted">{l.meta} · {l.contact}</p>
               </div>
-              <span className="ml-auto shrink-0 rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: "var(--success-bg)", color: "var(--success)" }}>{l.score} fit</span>
+              <span className="ml-auto shrink-0 rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: "var(--success-bg)", color: "var(--success)" }}>Score {l.score}</span>
             </div>
           ))}
           <p className="pt-1 text-center text-xs text-muted">Real businesses from the live LeadsForceGen database</p>
@@ -122,8 +122,8 @@ export default function Home() {
     <div className="hero-mesh">
       <div className="mx-auto w-full max-w-[1200px] px-4 pb-16 pt-12 sm:pt-16">
         <section className="text-center">
-          <p className="glass inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold text-fg shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
+          <p className="glass mx-auto w-fit max-w-full rounded-full px-4 py-1.5 text-center text-xs font-semibold leading-snug text-fg shadow-sm">
+            <span className="mr-2 inline-block h-2 w-2 rounded-full bg-success align-middle" aria-hidden="true" />
             1.1M+ real businesses — UAE · Nepal · New York · Seattle · Karachi · Dhaka
           </p>
           <h1 className="mx-auto mt-7 max-w-3xl text-5xl font-extrabold leading-[1.05] tracking-[-0.02em] text-fg sm:text-6xl">
