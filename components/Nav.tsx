@@ -148,7 +148,7 @@ export default function Nav() {
     "flex items-center min-h-[44px] px-3 rounded-lg text-base font-medium text-fg hover:bg-surface transition-colors";
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border/70 bg-bg/75 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 border-b border-border/70 bg-bg">
       <div className="mx-auto w-full max-w-[1200px] px-4">
         <div className="flex h-16 items-center justify-between gap-2">
           <Link href="/" className="inline-flex items-center gap-2.5 font-bold text-lg text-fg whitespace-nowrap" aria-label="LeadsForceGen home">

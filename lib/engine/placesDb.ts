@@ -59,7 +59,22 @@ const CATEGORY_MAP: Record<string, string[]> = {
   bank: ["bank_or_credit_union"],
   "car dealer": ["auto_dealer", "automotive_service"],
   "travel agency": ["travel_service"],
+  // Software / IT (2026-11-08): "software engineers" in Dubai returned
+  // empty even though Dubai holds hundreds of software firms — no
+  // software entry existed, so the niche passed through unmapped and
+  // only the full-phrase name match ran (0 rows). There is no
+  // `software*` Overture category at all, so real software firms sit
+  // scattered across these broad buckets — see BROAD_CATEGORY_NICHES
+  // below, which pairs the category match with a name-term filter.
+  software: ["technical_service", "b2b_science_and_technology_service", "design_service", "professional_service", "corporate_or_business_office"],
 };
+
+// Niches whose CATEGORY_MAP buckets are so broad (e.g. every
+// professional_service firm, not just software houses) that a bare
+// category match would return the wrong trade. For these, queryOne
+// pairs the category match with the name-term filter so a returned
+// row is both in a plausible bucket AND named like the trade.
+const BROAD_CATEGORY_NICHES = new Set(["software"]);
 
 const FIELDS = "id,name,category,lat,lon,phone,website,email,socials,address,locality,confidence";
 
@@ -99,34 +114,46 @@ async function queryOne(
 ): Promise<PlaceRow[]> {
   const dLat = radiusKm / 111;
   const dLon = radiusKm / (111 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
+  // Name terms, split into individual tokens: a multi-word term such
+  // as "software engineers" must OR its tokens (%software%,
+  // %engineer%, ...) — the full phrase alone matches 0 rows in Dubai
+  // while the tokens match 281 real businesses. Four tokens max:
+  // software needs software/developer/development/engineer.
+  const safeTerms = [...new Set(
+    terms
+      .flatMap((t) => t.toLowerCase().split(/[^a-z0-9]+/))
+      .map((t) => t.replace(/[%_,()]/g, "").trim())
+      .filter((t) => t.length >= 3),
+  )].slice(0, 4);
+  const nameOrClause = safeTerms.map((t) => `name.ilike.%${t}%`).join(",");
   try {
     let rows: PlaceRow[] = [];
     const cats = CATEGORY_MAP[niche];
     if (cats?.length) {
-      const { data, error } = await sb
+      let q = sb
         .from("places")
         .select(FIELDS)
         .gte("lat", lat - dLat).lte("lat", lat + dLat)
         .gte("lon", lon - dLon).lte("lon", lon + dLon)
-        .in("category", cats)
+        .in("category", cats);
+      // Broad buckets (see BROAD_CATEGORY_NICHES): require the name to
+      // look like the trade too, so a software search doesn't return
+      // every professional-services firm in the box.
+      if (BROAD_CATEGORY_NICHES.has(niche) && nameOrClause) q = q.or(nameOrClause);
+      const { data, error } = await q
         .order("confidence", { ascending: false })
         .limit(limit * 3);
       if (!error && data) rows = data as PlaceRow[];
     }
     if (rows.length < Math.min(5, limit)) {
       // Name-term fallback: covers niches/categories the map doesn't know.
-      const safeTerms = terms
-        .map((t) => t.replace(/[%_,()]/g, "").trim())
-        .filter((t) => t.length >= 3)
-        .slice(0, 3);
       if (safeTerms.length) {
-        const orClause = safeTerms.map((t) => `name.ilike.%${t}%`).join(",");
         const { data, error } = await sb
           .from("places")
           .select(FIELDS)
           .gte("lat", lat - dLat).lte("lat", lat + dLat)
           .gte("lon", lon - dLon).lte("lon", lon + dLon)
-          .or(orClause)
+          .or(nameOrClause)
           .order("confidence", { ascending: false })
           .limit(limit * 3);
         if (!error && data) {

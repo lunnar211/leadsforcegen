@@ -120,6 +120,9 @@
 
 html {
   scroll-behavior: smooth;
+  /* Keep anchor/scroll stops clear of the 64px sticky header (2026-11-08:
+     on mobile the "Find leads" button slid underneath the header). */
+  scroll-padding-top: 5rem;
 }
 body {
   background: var(--bg);

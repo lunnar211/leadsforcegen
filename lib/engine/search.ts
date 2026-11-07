@@ -75,6 +75,15 @@ const CANONICAL_NICHE: Record<string, string> = {
   school: "school", schools: "school", teacher: "teacher", teachers: "teacher",
   bank: "bank", banks: "bank", "real estate": "real estate", "travel agency": "travel agency",
   "travel agencies": "travel agency", training: "training",
+  // Software / IT (2026-11-08): "software engineers" in Dubai returned
+  // empty — no software entry existed at all, so the niche passed
+  // through unmapped and matched nothing anywhere.
+  software: "software", "software engineer": "software", "software engineers": "software",
+  "software developer": "software", "software developers": "software",
+  developer: "software", developers: "software",
+  "software company": "software", "software companies": "software",
+  "it company": "software", "it companies": "software", "it services": "software",
+  it: "software", "tech company": "software", "tech companies": "software",
 };
 
 function levenshtein(a: string, b: string): number {
@@ -200,6 +209,10 @@ function nicheTerms(niche: string): string[] {
     optician: ["optician", "optometrist"],
     accountant: ["accountant", "accounting"],
     architect: ["architect", "architecture"],
+    // Software (2026-11-08): the DB name fallback ORs these tokens —
+    // the full phrase "software engineers" matches 0 Dubai rows while
+    // software/developer/development/engineer match 281 real firms.
+    software: ["software", "developer", "development", "engineer"],
   };
   for (const s of synonyms[base] || synonyms[singular] || []) terms.add(s);
   return [...terms].filter(Boolean);
@@ -286,6 +299,10 @@ const NICHE_TAGS: Record<string, [string, string][]> = {
   optician: [["shop", "optician"], ["healthcare", "optometrist"]],
   accountant: [["office", "accountant"]],
   architect: [["office", "architect"]],
+  // Software / IT (2026-11-08): office=it is the OSM tag for IT
+  // companies — without it the map legs fell back to a 5 km
+  // phrase name-regex that matched nothing in Dubai.
+  software: [["office", "it"], ["office", "software"]],
 };
 
 async function overpass(lat: number, lon: number, niche: string, terms: string[]): Promise<OsmElement[]> {
@@ -769,7 +786,7 @@ export async function discoverContactPages(origin: string, includeAbout = false)
   }
 }
 
-export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string; broadLocation?: boolean };
+export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string; broadLocation?: boolean; nicheMapped?: boolean };
 
 export async function searchEverywhere(niche: string, location: string, limit: number, startedAtOverride?: number): Promise<EngineResult> {
   const empty: EngineResult = { leads: [], pagesRead: 0, placesFound: 0 };
@@ -790,16 +807,18 @@ export async function searchEverywhere(niche: string, location: string, limit: n
   };
   let resolvedNiche: string | undefined;
   let broadLocation = false;
+  let nicheMapped = false;
   try {
     if (!niche || !location) return empty;
     const rawNiche = niche;
     const resolved = await resolveNiche(niche);
     niche = resolved.niche;
+    nicheMapped = resolved.mapped;
     // The UI note tells the user what their words were understood as,
     // so a "car owners" search transparently shows "car dealers".
     if (resolved.mapped && niche.toLowerCase() !== rawNiche.toLowerCase().trim()) resolvedNiche = niche;
     const geo = await geocode(location);
-    if (!geo) return { ...empty, resolvedNiche };
+    if (!geo) return { ...empty, resolvedNiche, nicheMapped };
     tlog("geocode", `broad=${geo.broad}`);
     broadLocation = geo.broad;
     const terms = nicheTerms(niche);
@@ -1247,8 +1266,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         aiFiltered = v.dropped;
       }
     } catch { /* filter is best-effort; unfiltered results still serve */ }
-    return { leads, pagesRead, placesFound: candidates.length, aiFiltered, resolvedNiche, broadLocation };
+    return { leads, pagesRead, placesFound: candidates.length, aiFiltered, resolvedNiche, broadLocation, nicheMapped };
   } catch {
-    return { ...empty, resolvedNiche, broadLocation };
+    return { ...empty, resolvedNiche, broadLocation, nicheMapped };
   }
 }

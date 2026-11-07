@@ -261,7 +261,13 @@ async function handlePost(req: Request) {
     const searchedEmpty = engine.resolvedNiche || normalizeNiche(niche);
     note = engine.broadLocation
       ? `"${where}" looks like a whole country, state or region — a 20 km search around its center finds almost nothing. Search a city inside it instead (for example New York, Los Angeles or Chicago for the USA, or London for the UK) and you'll get real businesses.`
-      : `No real businesses found for "${niche}"${searchedEmpty !== niche ? ` (searched as "${searchedEmpty}")` : ""} in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
+      : engine.nicheMapped === false
+        // Unmapped niche, covered city: say so plainly instead of
+        // implying the city is uncovered (2026-11-08: "software
+        // engineers" in Dubai showed the covered-city advice even
+        // though Dubai is covered — the niche was unmapped).
+        ? `We don't have a category for "${niche}" yet — try a broader industry instead, for example software, restaurants or dentists. The stored lead database currently covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) and is expanding country by country.`
+        : `No real businesses found for "${niche}"${searchedEmpty !== niche ? ` (searched as "${searchedEmpty}")` : ""} in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
   }
 
   if (leads.length === 0) {

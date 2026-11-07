@@ -493,11 +493,11 @@ export default function Dashboard() {
             <div>
               <label className="label" htmlFor="f-industry">What are you looking for?</label>
               <input
-                id="f-industry" className="input" placeholder="e.g. dentists, car owners, restaurants" value={form.industry} onChange={set("industry")}
+                id="f-industry" className="input" placeholder="e.g. dentists, software companies, restaurants" value={form.industry} onChange={set("industry")}
                 autoComplete="off" aria-invalid={Boolean(fieldErrors.industry)}
                 aria-describedby={fieldErrors.industry ? "f-industry-error" : undefined}
               />
-              <p className="mt-1 text-xs text-muted">Type anything in plain words — the site understands what you mean.</p>
+              <p className="mt-1 text-xs text-muted">Type an industry in plain words — dentists, restaurants, software companies and more.</p>
               {fieldErrors.industry && <p className="field-error" id="f-industry-error" role="alert">{fieldErrors.industry}</p>}
             </div>
             <div>
@@ -542,7 +542,7 @@ export default function Dashboard() {
               <label className="label" htmlFor="f-keywords">Keywords <span className="font-normal text-muted">(optional)</span></label>
               <input id="f-keywords" className="input" placeholder="e.g. family owned" value={form.keywords} onChange={set("keywords")} autoComplete="off" />
             </div>
-            <button type="submit" disabled={loading} className="btn-primary btn-block" aria-busy={loading}>
+            <button type="submit" disabled={loading} className="btn-primary btn-block sticky bottom-4 z-10" aria-busy={loading}>
               {loading && <span className="spinner" aria-hidden="true" />}
               {loading ? "Searching…" : (<><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="mr-2 inline h-4 w-4"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>Find leads</>)}
             </button>
