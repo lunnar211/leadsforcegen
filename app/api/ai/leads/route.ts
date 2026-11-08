@@ -171,10 +171,10 @@ async function handlePost(req: Request) {
   // effectively unlimited (fair-use ceiling in lib/types).
   const perSearchCap = quotaUser?.plan === "pro" ? 500 : 30;
   const limitWanted = Math.min(want, perSearchCap);
-  // Cache version bumped v6 -> v7 (2026-10-25): v6 entries predate the
-  // business-only map filter, so exact queries (e.g. schools/London)
-  // kept serving the old access-object result until the 6h expiry.
-  const searchKey = `search:v7:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
+  // Cache version bumped v7 -> v8 (2026-11-08): v7 entries predate the
+  // country-box search, so exact queries (e.g. software/UAE) kept
+  // serving the old 20 km desert-center empty result until expiry.
+  const searchKey = `search:v8:${normalizeNiche(niche)}|${where.toLowerCase().trim()}|${limitWanted}`;
   let engine = await cacheGet<EngineResult>(searchKey, 6 * 3600_000);
   const fromCache = Boolean(engine);
   if (!engine) {
@@ -200,8 +200,14 @@ async function handlePost(req: Request) {
     // Country/state searches used to show only this "Found N" note even
     // when the N leads came from around the country's center point
     // (USA → Kansas), because the guidance sentence lived only in the
-    // empty branch. Append it whenever the location is broad.
-    if (engine.broadLocation) note += ` "${where}" looks like a whole country, state or region — these results are around its center point. Search a city inside it instead (for example New York, Los Angeles or Chicago for the USA, or London for the UK) for businesses near you.`;
+    // empty branch. Append it whenever the location is broad — but a
+    // country-wide result did NOT come from around a center point, so
+    // it gets its own wording (2026-11-08).
+    if (engine.broadLocation) {
+      note += engine.countryWide
+        ? ` "${where}" is a whole country, state or region — these results come from across it. Search a city inside it for businesses near you.`
+        : ` "${where}" looks like a whole country, state or region — these results are around its center point. Search a city inside it instead (for example New York, Los Angeles or Chicago for the USA, or London for the UK) for businesses near you.`;
+    }
     if (quotaUser) {
       const consumed = await consumeQuota(quotaUser.id, engine.leads.length);
       if (!consumed) {
@@ -259,14 +265,20 @@ async function handlePost(req: Request) {
     leads = [];
     source = "none";
     const searchedEmpty = engine.resolvedNiche || normalizeNiche(niche);
-    note = engine.broadLocation
-      ? `"${where}" looks like a whole country, state or region — a 20 km search around its center finds almost nothing. Search a city inside it instead (for example New York, Los Angeles or Chicago for the USA, or London for the UK) and you'll get real businesses.`
-      : engine.nicheMapped === false
-        // Unmapped niche, covered city: say so plainly instead of
-        // implying the city is uncovered (2026-11-08: "software
-        // engineers" in Dubai showed the covered-city advice even
-        // though Dubai is covered — the niche was unmapped).
-        ? `We don't have a category for "${niche}" yet — try a broader industry instead, for example software, restaurants or dentists. The stored lead database currently covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) and is expanding country by country.`
+    note = engine.nicheMapped === false
+      // Unmapped niche: say so plainly instead of implying the place
+      // is uncovered (2026-11-08: "software engineers" in Dubai
+      // showed the covered-city advice even though Dubai is covered
+      // — the niche was unmapped). Checked before broadLocation so a
+      // country search for an unmapped niche gets this, not the
+      // coverage message below.
+      ? `We don't have a category for "${niche}" yet — try a broader industry instead, for example software, restaurants or dentists. The stored lead database currently covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) and is expanding country by country.`
+      : engine.broadLocation
+        // Country with no stored results: say what the coverage is —
+        // never the old "20 km search around its center" line, which
+        // was false twice over (a country has no 20 km search, and
+        // the stored DB is searched by country box now).
+        ? `"${where}" is a whole country, state or region. The stored lead database covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) — try one of those places, or search a city inside "${where}" instead.`
         : `No real businesses found for "${niche}"${searchedEmpty !== niche ? ` (searched as "${searchedEmpty}")` : ""} in "${where}" yet. The stored lead database currently covers the UAE, Nepal, New York, Seattle, Karachi and Dhaka (1,100,000+ businesses) and is expanding country by country — try a covered city, or double-check the industry and city spelling.`;
   }
 

@@ -76,6 +76,65 @@ const CATEGORY_MAP: Record<string, string[]> = {
 // row is both in a plausible bucket AND named like the trade.
 const BROAD_CATEGORY_NICHES = new Set(["software"]);
 
+// COUNTRY SEARCH (2026-11-08): a whole country has no usable center
+// point — Nominatim puts the UAE at (24.0, 54.0), which is desert, so
+// a 20 km box around it held 0 software rows even though the stored
+// DB holds 134,144 UAE rows. A country search therefore queries a
+// bounding box over the country's stored coverage instead, using the
+// existing lat/lon columns — no schema change, no country column.
+// Boxes cover exactly the countries/regions actually stored:
+// AE + NP whole countries; US = contiguous US (stored US rows are
+// New York + Seattle only); PK = Pakistan (stored rows are Karachi);
+// BD = Bangladesh (stored rows are Dhaka); GB = United Kingdom
+// (London rows live in the packs project, when loaded). The PK box
+// stops at lon 75.5 on purpose: Delhi (77.2E) is NOT stored, and a
+// wider box would return Indian businesses for a Pakistan search.
+// The raw Nominatim bbox is NOT used: for the USA it spans the whole
+// globe's longitude (-180..180), which would return every stored
+// country's rows for a USA search.
+export type CountryBox = { minLat: number; maxLat: number; minLon: number; maxLon: number };
+export const COUNTRY_BOXES: Record<string, CountryBox> = {
+  AE: { minLat: 22.6316214, maxLat: 26.1517219, minLon: 51.4160714, maxLon: 56.6024458 },
+  NP: { minLat: 26.3477581, maxLat: 30.446945, minLon: 80.0570812, maxLon: 88.2015257 },
+  US: { minLat: 24.5, maxLat: 49.4, minLon: -124.8, maxLon: -66.9 },
+  PK: { minLat: 23.7, maxLat: 37.1, minLon: 60.9, maxLon: 75.5 },
+  BD: { minLat: 20.7, maxLat: 26.6, minLon: 88.0, maxLon: 92.7 },
+  GB: { minLat: 49.9, maxLat: 58.7, minLon: -8.6, maxLon: 1.8 },
+};
+
+// Location text -> country code, used when Nominatim gives no
+// country_code (keys are the location lowercased with all
+// non-alphanumerics stripped, so "U.A.E." and "UAE" both match).
+const COUNTRY_ALIASES: Record<string, string> = {
+  uae: "AE",
+  unitedarabemirates: "AE",
+  emirates: "AE",
+  usa: "US",
+  us: "US",
+  unitedstates: "US",
+  unitedstatesofamerica: "US",
+  america: "US",
+  uk: "GB",
+  unitedkingdom: "GB",
+  greatbritain: "GB",
+  england: "GB",
+  nepal: "NP",
+  pakistan: "PK",
+  bangladesh: "BD",
+};
+
+/** Resolve a country-level location to its stored-coverage box, or
+ * null when the country is not in the stored database. Prefers the
+ * Nominatim country_code; falls back to the alias map. */
+export function countryBoxFor(location: string, countryCode?: string | null): CountryBox | null {
+  const code = (countryCode || "").toUpperCase();
+  if (code && COUNTRY_BOXES[code]) return COUNTRY_BOXES[code];
+  const key = location.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const alias = COUNTRY_ALIASES[key];
+  if (alias && COUNTRY_BOXES[alias]) return COUNTRY_BOXES[alias];
+  return null;
+}
+
 const FIELDS = "id,name,category,lat,lon,phone,website,email,socials,address,locality,confidence";
 
 /** Canonical niches the stored database can answer by category. */
@@ -111,9 +170,18 @@ async function queryOne(
   lon: number,
   radiusKm: number,
   limit: number,
+  bbox?: CountryBox,
 ): Promise<PlaceRow[]> {
   const dLat = radiusKm / 111;
   const dLon = radiusKm / (111 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
+  // Country box replaces the radius box when given (bbox wins over
+  // the center point). Guard the antimeridian: a box whose minLon
+  // exceeds maxLon would match nothing, so fall back to the radius.
+  const useBox = Boolean(bbox) && bbox!.minLon <= bbox!.maxLon;
+  const latMin = useBox ? bbox!.minLat : lat - dLat;
+  const latMax = useBox ? bbox!.maxLat : lat + dLat;
+  const lonMin = useBox ? bbox!.minLon : lon - dLon;
+  const lonMax = useBox ? bbox!.maxLon : lon + dLon;
   // Name terms, split into individual tokens: a multi-word term such
   // as "software engineers" must OR its tokens (%software%,
   // %engineer%, ...) — the full phrase alone matches 0 rows in Dubai
@@ -133,8 +201,8 @@ async function queryOne(
       let q = sb
         .from("places")
         .select(FIELDS)
-        .gte("lat", lat - dLat).lte("lat", lat + dLat)
-        .gte("lon", lon - dLon).lte("lon", lon + dLon)
+        .gte("lat", latMin).lte("lat", latMax)
+        .gte("lon", lonMin).lte("lon", lonMax)
         .in("category", cats);
       // Broad buckets (see BROAD_CATEGORY_NICHES): require the name to
       // look like the trade too, so a software search doesn't return
@@ -151,8 +219,8 @@ async function queryOne(
         const { data, error } = await sb
           .from("places")
           .select(FIELDS)
-          .gte("lat", lat - dLat).lte("lat", lat + dLat)
-          .gte("lon", lon - dLon).lte("lon", lon + dLon)
+          .gte("lat", latMin).lte("lat", latMax)
+          .gte("lon", lonMin).lte("lon", lonMax)
           .or(nameOrClause)
           .order("confidence", { ascending: false })
           .limit(limit * 3);
@@ -175,6 +243,7 @@ export async function queryPlaces(
   lon: number,
   radiusKm: number,
   limit: number,
+  bbox?: CountryBox,
 ): Promise<PlaceRow[]> {
   // Fan-out: main project + packs project in parallel, merged by id.
   // A failing client returns [] from queryOne, so one project's outage
@@ -185,7 +254,7 @@ export async function queryPlaces(
   );
   if (!clients.length) return [];
   const results = await Promise.all(
-    clients.map((c) => queryOne(c, niche, terms, lat, lon, radiusKm, limit)),
+    clients.map((c) => queryOne(c, niche, terms, lat, lon, radiusKm, limit, bbox)),
   );
   const seen = new Set<string>();
   const merged: PlaceRow[] = [];

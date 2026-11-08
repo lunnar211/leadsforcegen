@@ -2,7 +2,7 @@ import "server-only";
 import { resolveMx } from "node:dns/promises";
 import { safeFetch } from "@/lib/safe-fetch";
 import { cacheGet, cacheSet } from "@/lib/cache";
-import { queryPlaces, KNOWN_NICHES, matchNicheByTokens } from "@/lib/engine/placesDb";
+import { queryPlaces, KNOWN_NICHES, matchNicheByTokens, countryBoxFor } from "@/lib/engine/placesDb";
 import { discoverViaCse, type CseCandidate } from "@/lib/engine/cse";
 import { aiVerifyLeads } from "@/lib/engine/verify";
 import type { Lead } from "@/lib/types";
@@ -218,16 +218,16 @@ function nicheTerms(niche: string): string[] {
   return [...terms].filter(Boolean);
 }
 
-async function geocode(location: string): Promise<{ lat: number; lon: number; broad: boolean } | null> {
-  // Namespace bumped to geo3: (2026-10-24) — geo2: rows lack the broad
-  // flag below, and re-geocoding is cheap.
-  const cacheKey = `geo3:${location.toLowerCase().trim()}`;
-  const cached = await cacheGet<{ lat: number; lon: number; broad: boolean }>(cacheKey, 30 * 24 * 3600_000);
+async function geocode(location: string): Promise<{ lat: number; lon: number; broad: boolean; isCountry: boolean; countryCode?: string } | null> {
+  // Namespace bumped to geo4: (2026-11-08) — geo3 rows lack the
+  // countryCode/isCountry fields below, and re-geocoding is cheap.
+  const cacheKey = `geo4:${location.toLowerCase().trim()}`;
+  const cached = await cacheGet<{ lat: number; lon: number; broad: boolean; isCountry: boolean; countryCode?: string }>(cacheKey, 30 * 24 * 3600_000);
   if (cached) return cached;
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(location)}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1&q=${encodeURIComponent(location)}`;
   const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
   if (!res.ok) return null;
-  const data = (await res.json()) as { lat: string; lon: string; addresstype?: string; type?: string }[];
+  const data = (await res.json()) as { lat: string; lon: string; addresstype?: string; type?: string; address?: { country_code?: string } }[];
   if (!data.length) return null;
   // Disambiguation fix (2026-10-24, proven by SQL diagnostic): a bare
   // "New York" used to resolve to the STATE (Nominatim's first result),
@@ -244,7 +244,13 @@ async function geocode(location: string): Promise<{ lat: number; lon: number; br
   // meaningless. The engine still searches (the box sometimes lands on
   // a town), but an empty result becomes guidance instead of a dead
   // end (see the route's empty note).
-  const point = { lat: Number(pick.lat), lon: Number(pick.lon), broad: !settlement };
+  // isCountry gates the country-box search: only a real country
+  // (addresstype=country) gets one. A state/region (California,
+  // Texas) is broad too, but its stored rows are city-level, so a
+  // country box would return the wrong places for it.
+  const isCountry = (pick.addresstype || pick.type || "") === "country";
+  const countryCode = pick.address?.country_code?.toUpperCase();
+  const point = { lat: Number(pick.lat), lon: Number(pick.lon), broad: !settlement, isCountry, ...(countryCode ? { countryCode } : {}) };
   void cacheSet(cacheKey, point);
   return point;
 }
@@ -786,7 +792,7 @@ export async function discoverContactPages(origin: string, includeAbout = false)
   }
 }
 
-export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string; broadLocation?: boolean; nicheMapped?: boolean };
+export type EngineResult = { leads: Lead[]; pagesRead: number; placesFound: number; aiFiltered?: number; resolvedNiche?: string; broadLocation?: boolean; countryWide?: boolean; nicheMapped?: boolean };
 
 export async function searchEverywhere(niche: string, location: string, limit: number, startedAtOverride?: number): Promise<EngineResult> {
   const empty: EngineResult = { leads: [], pagesRead: 0, placesFound: 0 };
@@ -807,6 +813,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
   };
   let resolvedNiche: string | undefined;
   let broadLocation = false;
+  let countryWide = false;
   let nicheMapped = false;
   try {
     if (!niche || !location) return empty;
@@ -821,6 +828,12 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     if (!geo) return { ...empty, resolvedNiche, nicheMapped };
     tlog("geocode", `broad=${geo.broad}`);
     broadLocation = geo.broad;
+    // COUNTRY SEARCH (2026-11-08): a whole country is searched by its
+    // stored-coverage bounding box, not by a 20 km box around the
+    // country's center point (for the UAE that point is desert and
+    // held 0 rows). Only real countries get a box — a state/region
+    // keeps the radius behavior and the honest empty message.
+    const countryBox = geo.broad && geo.isCountry ? countryBoxFor(location, geo.countryCode) : null;
     const terms = nicheTerms(niche);
     // SPEED (2026-10-24): the stored DB answers in milliseconds, but
     // the old code awaited the 15s-capped map race on EVERY search —
@@ -829,8 +842,9 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // map race and CSE entirely (DB latency added to the other path
     // is milliseconds). Empty/uncovered searches still run the full
     // discovery set, capped as before.
-    const dbPlaces = await queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit).catch(() => []);
-    tlog("db", `rows=${dbPlaces.length}`);
+    const dbPlaces = await queryPlaces(niche, terms, geo.lat, geo.lon, 20, limit, countryBox ?? undefined).catch(() => []);
+    tlog("db", `rows=${dbPlaces.length}${countryBox ? " country-box" : ""}`);
+    countryWide = Boolean(countryBox && dbPlaces.length > 0);
     let elements: OsmElement[] = [];
     let mapLeg = "none";
     let cseRows: CseCandidate[] = [];
@@ -853,14 +867,22 @@ export async function searchEverywhere(niche: string, location: string, limit: n
       // winner (request-scoped local, never module state) so the lead's
       // provenance names the actual source. This is also better
       // provenance for users, permanently.
+      // BROAD LOCATIONS (2026-11-08): Overpass + OSM-API tiles are
+      // radius-based around the geocoded center, which for a country
+      // is a near-meaningless point (UAE center = desert), so they
+      // are skipped and only the text-based Nominatim leg runs — with
+      // no 8s delay, since it is now the only map leg — plus CSE.
       const delayedNominatim = new Promise<OsmElement[]>((resolve) =>
-        setTimeout(() => nominatimPoi(niche, location, geo).then(resolve, () => resolve([])), 8000),
+        setTimeout(() => nominatimPoi(niche, location, geo).then(resolve, () => resolve([])), geo.broad ? 0 : 8000),
       );
-      const mapChain = Promise.any([
-        nonEmpty(overpass(geo.lat, geo.lon, niche, terms)).then((els) => ({ els, leg: "overpass" })),
-        nonEmpty(osmApiFallback(geo.lat, geo.lon)).then((els) => ({ els, leg: "osm-api" })),
-        nonEmpty(delayedNominatim).then((els) => ({ els, leg: "nominatim" })),
-      ]).catch(() => ({ els: [] as OsmElement[], leg: "none" }));
+      const mapLegs = geo.broad
+        ? [nonEmpty(delayedNominatim).then((els) => ({ els, leg: "nominatim" }))]
+        : [
+            nonEmpty(overpass(geo.lat, geo.lon, niche, terms)).then((els) => ({ els, leg: "overpass" })),
+            nonEmpty(osmApiFallback(geo.lat, geo.lon)).then((els) => ({ els, leg: "osm-api" })),
+            nonEmpty(delayedNominatim).then((els) => ({ els, leg: "nominatim" })),
+          ];
+      const mapChain = Promise.any(mapLegs).catch(() => ({ els: [] as OsmElement[], leg: "none" }));
       const mapCap = new Promise<{ els: OsmElement[]; leg: string }>((r) =>
         setTimeout(() => r({ els: [], leg: "timeout" }), 15000),
       );
@@ -991,7 +1013,15 @@ export async function searchEverywhere(niche: string, location: string, limit: n
     // Rank before spending crawl budget: tag-precise businesses first,
     // then nearest to the searched center. Enrichment and final ordering
     // both benefit — the best leads get their websites read first.
-    candidates.sort((a, b) => Number(b.precise) - Number(a.precise) || a.distKm - b.distKm);
+    // Country-wide results rank by listing confidence instead: the
+    // distance from a country's center point is meaningless (for the
+    // UAE it is desert), so nearest-first would rank by desert
+    // proximity rather than by listing quality.
+    candidates.sort(
+      (a, b) =>
+        Number(b.precise) - Number(a.precise) ||
+        (countryWide ? (b.confidence ?? 0) - (a.confidence ?? 0) : a.distKm - b.distKm),
+    );
 
     // Enrichment runs with limited concurrency under a hard deadline tied
     // to the FUNCTION start (the route passes its entry timestamp, so
@@ -1187,7 +1217,7 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         location: e.address || location,
         size: "",
         website: c.website ? domainOf(c.website) : "",
-        description: `Real business found via ${c.sourceName || "OpenStreetMap"}${c.website ? " with a live website" : ""}${c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}${c.osmDetails ? ". Phone/website from its OpenStreetMap listing" : ""}. Contacts are published by the business itself — verify before outreach.`,
+        description: `Real business found via ${c.sourceName || "OpenStreetMap"}${c.website ? " with a live website" : ""}${!countryWide && c.distKm < 900 ? `, ${c.distKm.toFixed(1)} km from the ${location} center` : ""}${c.osmDetails ? ". Phone/website from its OpenStreetMap listing" : ""}. Contacts are published by the business itself — verify before outreach.`,
         score,
         email,
         phone,
@@ -1266,8 +1296,8 @@ export async function searchEverywhere(niche: string, location: string, limit: n
         aiFiltered = v.dropped;
       }
     } catch { /* filter is best-effort; unfiltered results still serve */ }
-    return { leads, pagesRead, placesFound: candidates.length, aiFiltered, resolvedNiche, broadLocation, nicheMapped };
+    return { leads, pagesRead, placesFound: candidates.length, aiFiltered, resolvedNiche, broadLocation, countryWide, nicheMapped };
   } catch {
-    return { ...empty, resolvedNiche, broadLocation, nicheMapped };
+    return { ...empty, resolvedNiche, broadLocation, countryWide, nicheMapped };
   }
 }
