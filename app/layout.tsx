@@ -93,6 +93,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSON_LD) }} />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_JSON_LD) }} />
+        {/* AdSense connect snippet (verification only — no ad units; shows no ads until Google approves the account). */}
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2231619318636842"
+          crossOrigin="anonymous"
+        />
       </head>
       <body className="min-h-[100dvh] flex flex-col bg-bg text-fg font-sans antialiased">
         <SiteBanner />
