@@ -542,7 +542,7 @@ export default function Dashboard() {
               <label className="label" htmlFor="f-keywords">Keywords <span className="font-normal text-muted">(optional)</span></label>
               <input id="f-keywords" className="input" placeholder="e.g. family owned" value={form.keywords} onChange={set("keywords")} autoComplete="off" />
             </div>
-            <button type="submit" disabled={loading} className="btn-primary btn-block sticky bottom-4 z-10" aria-busy={loading}>
+            <button type="submit" disabled={loading} className="btn-primary btn-block" aria-busy={loading}>
               {loading && <span className="spinner" aria-hidden="true" />}
               {loading ? "Searching…" : (<><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="mr-2 inline h-4 w-4"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>Find leads</>)}
             </button>
@@ -618,12 +618,16 @@ export default function Dashboard() {
                     {filter === "all" ? `${leads.length} leads` : `Showing ${visibleLeads.length} of ${leads.length} leads`}
                   </h2>
                   <div className="flex flex-wrap gap-2" role="group" aria-label="Export leads">
-                    <button onClick={exportCsv} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download CSV" : "CSV (Pro)"}</button>
-                    <button onClick={() => void exportXlsx()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download Excel" : "Excel (Pro)"}</button>
-                    <button onClick={() => void exportPdf()} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download PDF" : "PDF (Pro)"}</button>
-                    <button onClick={exportJson} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download JSON" : "JSON (Pro)"}</button>
+                    <button onClick={exportCsv} title={isPro ? "Download these leads as CSV" : "CSV export is a Pro feature — upgrade to download"} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download CSV" : "CSV (Pro)"}</button>
+                    <button onClick={() => void exportXlsx()} title={isPro ? "Download these leads as Excel" : "Excel export is a Pro feature — upgrade to download"} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download Excel" : "Excel (Pro)"}</button>
+                    <button onClick={() => void exportPdf()} title={isPro ? "Download these leads as PDF" : "PDF export is a Pro feature — upgrade to download"} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download PDF" : "PDF (Pro)"}</button>
+                    <button onClick={exportJson} title={isPro ? "Download these leads as JSON" : "JSON export is a Pro feature — upgrade to download"} className="btn-ghost !min-h-[44px] text-sm">{isPro ? "Download JSON" : "JSON (Pro)"}</button>
                   </div>
                 </div>
+                <p className="mt-2 text-xs text-muted">
+                  Score = published phone + email + website + source quality — higher means more published contacts. Verify every lead before outreach.
+                  {!isPro && (<> Exports are a Pro feature — <Link href="/checkout" className="font-semibold text-accent-text underline underline-offset-2">upgrade to Pro</Link> to download CSV, Excel, PDF or JSON.</>)}
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filter results">
                   {(["all", "email", "phone", "website"] as const).map((f) => (
                     <button

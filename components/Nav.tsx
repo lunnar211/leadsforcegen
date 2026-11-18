@@ -15,11 +15,15 @@ async function loadSupabase(): Promise<SupabaseModule> {
 type Theme = "light" | "dark";
 
 // Inline SVG icons (design system rule: SVG icons, never emoji or
-// text glyphs). Brand mark is flat accent — no gradient.
-function BoltMark() {
+// text glyphs). Brand mark is a map pin over ledger rules — a
+// directory/atlas mark, not a generic bolt (redesign 2026-11-18).
+function AtlasMark() {
   return (
     <span className="inline-flex items-center justify-center rounded-[10px] p-[7px] text-white shadow-md" style={{ background: "var(--accent)" }} aria-hidden="true">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5h6L9.3 22l8.7-11.5h-6.2L13 2z" /></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 21s-6.5-5.4-6.5-10.3a6.5 6.5 0 0 1 13 0C18.5 15.6 12 21 12 21z" />
+        <circle cx="12" cy="10.6" r="2.2" />
+      </svg>
     </span>
   );
 }
@@ -64,6 +68,11 @@ function applyTheme(t: Theme) {
 
 export default function Nav() {
   const [open, setOpen] = useState(false);
+  // Theme icon renders only after mount: the pre-paint script owns the
+  // initial theme, and initialising state to "dark" showed the wrong
+  // (moon) icon to light-mode users until the effect synced it. Until
+  // mount, a same-size blank keeps the layout steady with no flash.
+  const [mounted, setMounted] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
   const [isAdmin, setIsAdmin] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -75,6 +84,7 @@ export default function Nav() {
     // theme; this only syncs the toggle icon with it.
     const raf = requestAnimationFrame(() => {
       setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+      setMounted(true);
     });
     let cancelled = false;
     (async () => {
@@ -152,14 +162,16 @@ export default function Nav() {
       <div className="mx-auto w-full max-w-[1200px] px-4">
         <div className="flex h-16 items-center justify-between gap-2">
           <Link href="/" className="inline-flex items-center gap-2.5 font-bold text-lg text-fg whitespace-nowrap" aria-label="LeadsForceGen home">
-            <BoltMark />
+            <AtlasMark />
             LeadsForceGen
           </Link>
 
           {/* Desktop nav (≥768px) */}
           <nav className="hidden md:flex items-center gap-1" aria-label="Main">
             <Link href="/dashboard" className={linkCls}>Dashboard</Link>
+            <Link href="/pricing" className={linkCls}>Pricing</Link>
             <Link href="/blog" className={linkCls}>Blog</Link>
+            <Link href="/contact" className={linkCls}>Contact</Link>
             {signedIn && (
               <Link href="/bulk-email" className={linkCls}>Bulk Email</Link>
             )}
@@ -170,9 +182,9 @@ export default function Nav() {
               type="button"
               onClick={toggleTheme}
               className={linkCls}
-              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={mounted ? (theme === "dark" ? "Switch to light mode" : "Switch to dark mode") : "Toggle theme"}
             >
-              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+              {mounted ? (theme === "dark" ? <SunIcon /> : <MoonIcon />) : <span className="inline-block h-5 w-5" aria-hidden="true" />}
             </button>
             {signedIn ? (
               <button type="button" onClick={signOut} className={linkCls}>Sign out</button>
@@ -190,9 +202,9 @@ export default function Nav() {
               type="button"
               onClick={toggleTheme}
               className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-lg text-muted"
-              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={mounted ? (theme === "dark" ? "Switch to light mode" : "Switch to dark mode") : "Toggle theme"}
             >
-              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+              {mounted ? (theme === "dark" ? <SunIcon /> : <MoonIcon />) : <span className="inline-block h-5 w-5" aria-hidden="true" />}
             </button>
             <button
               type="button"
@@ -213,7 +225,9 @@ export default function Nav() {
         <div>
           <nav className="px-4 py-2 flex flex-col" aria-label="Mobile">
             <Link href="/dashboard" className={panelLinkCls}>Dashboard</Link>
+            <Link href="/pricing" className={panelLinkCls}>Pricing</Link>
             <Link href="/blog" className={panelLinkCls}>Blog</Link>
+            <Link href="/contact" className={panelLinkCls}>Contact</Link>
             {signedIn && (
               <Link href="/bulk-email" className={panelLinkCls}>Bulk Email</Link>
             )}

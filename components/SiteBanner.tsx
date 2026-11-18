@@ -5,7 +5,7 @@ type Notice = { enabled?: boolean; text?: string; link?: string };
 
 // Site-wide notice bar driven by /api/settings (owner-controlled from
 // Admin → Settings). Maintenance notice (red) wins over the promo
-// banner (gradient). Dismissal is remembered for the session only.
+// banner (flat accent). Dismissal is remembered for the session only.
 export default function SiteBanner() {
   const [notice, setNotice] = useState<{ text: string; link?: string; kind: "banner" | "maintenance" } | null>(null);
 

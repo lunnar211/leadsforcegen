@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Plus_Jakarta_Sans, Fraunces, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import SiteBanner from "@/components/SiteBanner";
@@ -8,10 +8,23 @@ import CookieConsent, { CookieChoicesButton } from "@/components/CookieConsent";
 
 // Typography per the LeadsForceGen design system (UI/UX Pro Max):
 // Plus Jakarta Sans — friendly, modern SaaS.
+// Ledger redesign (2026-11-18): Fraunces (display serif) for
+// headlines + IBM Plex Mono for data (scores, counts, phone numbers).
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-jakarta",
+});
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-fraunces",
+});
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
+  variable: "--font-plex-mono",
 });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://leadsforcegen.vercel.app";
@@ -21,7 +34,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f4ec" },
     { media: "(prefers-color-scheme: dark)", color: "#0b0b0f" },
   ],
 };
@@ -88,7 +101,7 @@ const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("lfg-theme");if
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={jakarta.variable} suppressHydrationWarning>
+    <html lang="en" className={`${jakarta.variable} ${fraunces.variable} ${plexMono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSON_LD) }} />
@@ -101,9 +114,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-[100dvh] flex flex-col bg-bg text-fg font-sans antialiased">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-4 focus:py-2 focus:font-semibold focus:text-accent-fg">
+          Skip to content
+        </a>
         <SiteBanner />
         <Nav />
-        <main className="flex-1 w-full">{children}</main>
+        <main id="main-content" className="flex-1 w-full">{children}</main>
         <footer className="border-t border-border bg-surface safe-b">
           <div className="mx-auto grid w-full max-w-[1200px] gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
             <div>

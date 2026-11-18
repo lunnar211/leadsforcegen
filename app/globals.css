@@ -5,16 +5,18 @@
    script in app/layout.tsx (localStorage choice, else OS preference).
    The media-query block below is the no-JS fallback only.            */
 :root {
-  /* Palette per the LeadsForceGen design system (UI/UX Pro Max):
-     trust blue primary #2563EB, orange CTA #EA580C, slate neutrals. */
-  --bg: #f8fafc;
-  --surface: #ffffff;
-  --card: #ffffff;
-  --border: #e2e8f0;
-  --input-bg: #ffffff;
-  --input-border: #94a3b8;
-  --fg: #1e293b;
-  --muted: #475569;
+  /* Ledger / atlas palette (2026-11-18 redesign): ink on paper in
+     light mode — warm paper background, warm ink text, flat surfaces
+     with ruled lines. One accent (blue) used sparingly; orange only
+     for CTAs. No gradients anywhere. */
+  --bg: #f7f4ec;
+  --surface: #fffdf7;
+  --card: #fffdf7;
+  --border: #e2dccb;
+  --input-bg: #fffdf7;
+  --input-border: #a89e86;
+  --fg: #221d14;
+  --muted: #5d5646;
   --placeholder: #64748b;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
@@ -116,6 +118,11 @@
   --color-warning-bg: var(--warning-bg);
   --font-sans: var(--font-jakarta), ui-sans-system, system-ui, -apple-system,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Ledger typography: a display serif for headlines, a monospace face
+     for data (scores, counts, phone numbers, city index). */
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo,
+    Consolas, "Liberation Mono", monospace;
 }
 
 html {
@@ -235,20 +242,8 @@ button,
   cursor: pointer;
 }
 
-/* Glassmorphism surface (design system style): frosted, layered. */
-.glass {
-  background: color-mix(in srgb, var(--card) 68%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-}
-
-/* Soft brand mesh behind heroes: blue + orange radial washes. */
-.hero-mesh {
-  background:
-    radial-gradient(55% 45% at 15% 0%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 70%),
-    radial-gradient(45% 40% at 88% 8%, color-mix(in srgb, var(--cta) 13%, transparent), transparent 70%);
-}
+/* (No glass, no gradient mesh: the 2026-11-18 redesign removed both.
+   Flat ink-and-paper surfaces with ruled lines replace them.) */
 
 .card-hover {
   transition: transform 180ms ease, box-shadow 180ms ease;
@@ -298,22 +293,15 @@ button,
   color: var(--danger);
 }
 
-/* Skeleton shimmer */
+/* Skeleton loading — flat pulse, no gradient shimmer. */
 .skeleton {
   border-radius: var(--radius);
-  background: linear-gradient(
-    100deg,
-    var(--surface) 40%,
-    color-mix(in srgb, var(--fg) 8%, var(--surface)) 50%,
-    var(--surface) 60%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite;
+  background: var(--border);
+  animation: pulse-flat 1.4s ease-in-out infinite;
 }
-@keyframes shimmer {
-  to {
-    background-position: -200% 0;
-  }
+@keyframes pulse-flat {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 .spinner {
