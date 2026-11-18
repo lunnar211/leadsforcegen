@@ -159,6 +159,7 @@ export default function Nav() {
           {/* Desktop nav (≥768px) */}
           <nav className="hidden md:flex items-center gap-1" aria-label="Main">
             <Link href="/dashboard" className={linkCls}>Dashboard</Link>
+            <Link href="/blog" className={linkCls}>Blog</Link>
             {signedIn && (
               <Link href="/bulk-email" className={linkCls}>Bulk Email</Link>
             )}
@@ -212,6 +213,7 @@ export default function Nav() {
         <div>
           <nav className="px-4 py-2 flex flex-col" aria-label="Mobile">
             <Link href="/dashboard" className={panelLinkCls}>Dashboard</Link>
+            <Link href="/blog" className={panelLinkCls}>Blog</Link>
             {signedIn && (
               <Link href="/bulk-email" className={panelLinkCls}>Bulk Email</Link>
             )}

@@ -14,7 +14,7 @@ export function GET() {
   // ca-pub- form. The env var stores the ca-pub- form (as shown in
   // the AdSense dashboard), so strip the ca- prefix here only.
   const adsTxtId = publisher.replace(/^ca-/, "");
-  return new NextResponse(`google.com, ${adsTxtId}, DIRECT, f08c47fec0942fa\n`, {
+  return new NextResponse(`google.com, ${adsTxtId}, DIRECT, f08c47fec0942fa0\n`, {
     headers: { "content-type": "text/plain" },
   });
 }

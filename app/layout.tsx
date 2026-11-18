@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Link from "next/link";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
@@ -107,6 +108,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Product</p>
               <ul className="mt-3 space-y-2 text-sm">
                 <li><a className="text-muted hover:text-fg" href="/dashboard">Dashboard</a></li>
+                <li><Link className="text-muted hover:text-fg" href="/blog">Blog</Link></li>
                 <li><a className="text-muted hover:text-fg" href="/bulk-email">Bulk Email</a></li>
                 <li><a className="text-muted hover:text-fg" href="/pricing">Pricing</a></li>
                 <li><a className="text-muted hover:text-fg" href="/signup">Start free</a></li>
@@ -117,6 +119,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Legal</p>
               <ul className="mt-3 space-y-2 text-sm">
                 <li><a className="text-muted hover:text-fg" href="/about">About</a></li>
+                <li><Link className="text-muted hover:text-fg" href="/contact">Contact</Link></li>
                 <li><a className="text-muted hover:text-fg" href="/privacy">Privacy</a></li>
                 <li><a className="text-muted hover:text-fg" href="/terms">Terms</a></li>
                 <li><a className="text-muted hover:text-fg" href="/unsubscribe">Remove a business</a></li>
