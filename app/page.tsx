@@ -160,6 +160,9 @@ export default async function Home() {
               </li>
             ))}
           </ol>
+          <p className="mt-6 text-sm">
+            <Link href="/how-it-works" className="font-semibold text-accent-text underline underline-offset-2">How it works in detail →</Link>
+          </p>
         </Reveal>
 
         {/* Pricing block stays static on purpose: pricing-adjacent
