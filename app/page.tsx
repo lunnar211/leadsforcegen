@@ -129,6 +129,9 @@ export default async function Home() {
               </tbody>
             </table>
           </div>
+          <p className="mt-6 text-sm">
+            <Link href="/browse" className="font-semibold text-accent-text underline underline-offset-2">Browse all cities and niches →</Link>
+          </p>
         </Reveal>
         </div>
 

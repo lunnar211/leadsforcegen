@@ -54,7 +54,7 @@ export const SEO_NICHES: SeoNiche[] = [
 ];
 
 // Covered cities get all 8 niches; pack cities get the 4 most-searched.
-// Total: 4*8 + 11*4 = 76 pages.
+// Total: 6*8 + 9*4 = 84 pages.
 export function seoPages(): { city: SeoCity; niche: SeoNiche }[] {
   const out: { city: SeoCity; niche: SeoNiche }[] = [];
   for (const city of SEO_CITIES) {
